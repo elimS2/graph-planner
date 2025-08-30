@@ -6,6 +6,7 @@
     <title>{{ project.name }} - Graph</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-edgehandles@4.0.1/cytoscape-edgehandles.min.js"></script>
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <div class="flex flex-col h-screen">
@@ -26,7 +27,7 @@
             <input id="searchBox" type="text" placeholder="Search nodes..." class="border rounded px-2 py-1" />
             <select id="statusFilter" class="border rounded px-2 py-1">
               <option value="">All</option>
-              <option value="todo">Todo</option>
+              <option value="planned">Todo</option>
               <option value="in-progress">In Progress</option>
               <option value="done">Done</option>
               <option value="blocked">Blocked</option>
@@ -66,7 +67,7 @@
           <div>
             <label class="block text-sm">Status</label>
             <select id="statusSelect" class="w-full border rounded p-2">
-              <option value="planned">planned</option>
+              <option value="planned">todo</option>
               <option value="in-progress">in-progress</option>
               <option value="done">done</option>
               <option value="blocked">blocked</option>
@@ -79,6 +80,10 @@
           <div>
             <h3 class="text-sm font-semibold">Comments</h3>
             <ul id="commentsList" class="text-sm space-y-1 max-h-32 overflow-auto"></ul>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold">Status History</h3>
+            <ul id="statusHistory" class="text-sm space-y-1 max-h-24 overflow-auto"></ul>
           </div>
           <form id="commentForm" class="space-y-2">
             <div>
@@ -258,6 +263,28 @@
         });
         cy.fit();
 
+        // Enable drag-to-connect (edgehandles)
+        try {
+          const eh = cy.edgehandles({
+            toggleOffOnLeave: true,
+            handleNodes: 'node',
+            handleSize: 12,
+            handleColor: '#0ea5e9',
+            handleLineType: 'straight',
+            handleLineWidth: 2,
+            snap: true,
+            noEdgeEventsInDraw: true
+          });
+          cy.on('ehcomplete', async (event, sourceNode, targetNode, addedEles) => {
+            try {
+              const resp = await postJSON(`/api/v1/projects/${projectId}/edges`, { source_node_id: sourceNode.id(), target_node_id: targetNode.id() });
+              // Replace temp edge with server one
+              if (addedEles && addedEles.length) addedEles.remove();
+              addEdgeToCy(resp.data);
+            } catch { alert('Edge creation failed'); }
+          });
+        } catch(e) { /* ignore if plugin not available */ }
+
         function applyInitialPositions() {
           // Set saved positions for nodes that have them
           cy.nodes().forEach(n => {
@@ -309,6 +336,19 @@
             li.appendChild(amt); li.appendChild(when);
             costList.appendChild(li);
           });
+          // status history
+          try {
+            const h = await fetch(`/api/v1/nodes/${nodeId}/status-history`).then(r=>r.json());
+            const sh = document.getElementById('statusHistory');
+            sh.innerHTML = '';
+            (h.data || []).forEach(x => {
+              const li = document.createElement('li');
+              li.textContent = `${x.old_status} → ${x.new_status}`;
+              const when = document.createElement('span'); when.className = 'ml-2 text-xs text-slate-500'; when.textContent = formatDate(x.created_at);
+              li.appendChild(when);
+              sh.appendChild(li);
+            });
+          } catch {}
         }
 
         cy.on('tap', 'node', async (evt) => {
@@ -642,7 +682,10 @@
           const f = (document.getElementById('statusFilter').value || '').toLowerCase();
           cy.nodes().forEach(n => {
             const matchesText = !q || (String(n.data('label') || '').toLowerCase().includes(q));
-            const matchesStatus = !f || (String(n.data('status') || '').toLowerCase() === f);
+            // Internal status uses 'planned' for what UI calls 'Todo'
+            const statusValue = String(n.data('status') || '').toLowerCase();
+            const filterValue = f === 'planned' ? 'planned' : f;
+            const matchesStatus = !f || (statusValue === filterValue);
             n.style('opacity', (matchesText && matchesStatus) ? 1 : 0.15);
           });
         }

@@ -95,6 +95,8 @@ class Node(db.Model, TimestampMixin):
 
     tags = relationship("Tag", secondary=node_tag, back_populates="nodes")
 
+    status_changes = relationship("StatusChange", back_populates="node", cascade="all, delete-orphan")
+
 
 class Edge(db.Model, TimestampMixin):
     __tablename__ = "edge"
@@ -171,6 +173,17 @@ class NodeLayout(db.Model):
     x: Mapped[float] = mapped_column(db.Float, nullable=False, default=0.0)
     y: Mapped[float] = mapped_column(db.Float, nullable=False, default=0.0)
     updated_at: Mapped[str] = mapped_column(db.String, default=lambda: datetime.utcnow().isoformat() + "Z", nullable=False)
+
+
+class StatusChange(db.Model, TimestampMixin):
+    __tablename__ = "status_change"
+
+    id: Mapped[str] = mapped_column(db.String, primary_key=True, default=generate_uuid)
+    node_id: Mapped[str] = mapped_column(db.String, ForeignKey("node.id", ondelete="CASCADE"), nullable=False)
+    old_status: Mapped[str] = mapped_column(db.String, nullable=False)
+    new_status: Mapped[str] = mapped_column(db.String, nullable=False)
+
+    node = relationship("Node", back_populates="status_changes")
 
 
 

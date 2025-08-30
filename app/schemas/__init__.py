@@ -65,3 +65,11 @@ class CostEntrySchema(Schema):
     incurred_at = fields.String(required=True)
 
 
+class StatusChangeSchema(Schema):
+    id = fields.String(dump_only=True)
+    node_id = fields.String(required=True, load_only=True)
+    old_status = fields.String(required=True)
+    new_status = fields.String(required=True)
+    created_at = fields.String(dump_only=True)
+
+

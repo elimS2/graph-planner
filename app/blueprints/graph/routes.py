@@ -3,8 +3,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ...extensions import db
 from flask_login import login_required
-from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout
-from ...schemas import ProjectSchema, NodeSchema, EdgeSchema, CommentSchema, TimeEntrySchema, CostEntrySchema
+from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout, StatusChange
+from ...schemas import ProjectSchema, NodeSchema, EdgeSchema, CommentSchema, TimeEntrySchema, CostEntrySchema, StatusChangeSchema
 from ...services.nodes import recompute_importance_score, recompute_group_status
 from ...services.graph_analysis import longest_path_by_planned_hours
 
@@ -103,14 +103,25 @@ def update_node(id: str):
         return jsonify({"errors": [{"status": 404, "title": "Not Found"}]}), 404
     payload = request.get_json(force=True) or {}
     data = NodeSchema(partial=True).load(payload)
+    old_status = item.status
     for k, v in data.items():
         setattr(item, k, v)
     db.session.commit()
     # if status changed, recompute group chain
-    if "status" in data:
+    if "status" in data and data.get("status") != old_status:
+        try:
+            sc = StatusChange(node_id=item.id, old_status=old_status or "planned", new_status=item.status or "planned")
+            db.session.add(sc)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
         recompute_group_status(item.parent_id)
     recompute_importance_score(item.id)
     return jsonify({"data": NodeSchema().dump(item)})
+@bp.get("/nodes/<node_id>/status-history")
+def node_status_history(node_id: str):
+    items = db.session.query(StatusChange).filter_by(node_id=node_id).order_by(StatusChange.created_at.desc()).all()
+    return jsonify({"data": StatusChangeSchema(many=True).dump(items)})
 
 
 @bp.delete("/nodes/<id>")
