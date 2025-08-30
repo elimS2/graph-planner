@@ -10,9 +10,8 @@
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <div class="flex flex-col h-screen">
       <div class="flex items-center justify-between px-4 py-3">
-        <h1 class="text-2xl font-semibold">{{ project.name }}</h1>
+        <h1 id="projTitle" class="text-2xl font-semibold cursor-text" contenteditable="true" spellcheck="false">{{ project.name }}</h1>
         <div class="flex items-center gap-3">
-          <button id="btnRenameProject" class="px-3 py-1 bg-blue-600 text-white rounded">Rename</button>
           <span id="userEmail" class="text-sm text-slate-600 hidden"></span>
           <button id="btnLogin" class="px-3 py-1 bg-slate-700 text-white rounded">Login</button>
           <button id="btnLogout" class="px-3 py-1 bg-slate-500 text-white rounded hidden">Logout</button>
@@ -43,11 +42,12 @@
             <label class="px-3 py-1 bg-slate-700 text-white rounded cursor-pointer">Import JSON<input id="importInput" type="file" accept="application/json" class="hidden" /></label>
             <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
+            <button id="btnResetView" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Reset View</button>
             <button id="btnToggleSidebar" class="ml-auto px-3 py-1 bg-slate-200 text-slate-800 rounded">Toggle Sidebar</button>
           </div>
           <div class="relative flex-1 min-h-0 mx-4 mb-4">
-            <div id="cy" class="absolute inset-0 bg-white rounded shadow"></div>
-            <div class="absolute right-3 bottom-3 flex flex-col gap-2">
+            <div id="cy" class="absolute inset-0 bg-white rounded shadow z-0 pointer-events-auto"></div>
+            <div class="absolute right-3 bottom-3 flex flex-col gap-2 z-30 pointer-events-auto">
               <button id="zoomIn" class="w-10 h-10 rounded bg-white/90 shadow text-xl">+</button>
               <button id="zoomOut" class="w-10 h-10 rounded bg-white/90 shadow text-xl">−</button>
             </div>
@@ -261,7 +261,8 @@
           style: [
             { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(descendants, 0, 20, 20, 80)', 'height': 'mapData(descendants, 0, 20, 20, 80)'} },
             { selector: 'edge', style: { 'line-color': '#64748b', 'width': 1.5, 'curve-style': 'bezier', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle', 'arrow-scale': 1.2 } },
-            { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } },
+            /* Cytoscape doesn't support :hover selector here; remove to avoid errors */
+            /* { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } }, */
             { selector: 'edge:selected', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'width': 2.5, 'arrow-scale': 1.5 } },
             { selector: 'node[status = "planned"]', style: { 'background-color': '#38bdf8' } },
             { selector: 'node[status = "done"]', style: { 'background-color': '#22c55e' } },
@@ -528,6 +529,11 @@
             } else {
               const targetId = evt.target.data('id');
               cy.off('tap', 'node', pickHandler);
+              // guard against invalid ids
+              if (!cy.getElementById(sourceId).nonempty() || !cy.getElementById(targetId).nonempty()) {
+                alert('Edge creation failed');
+                return;
+              }
               postJSON(`/api/v1/projects/${projectId}/edges`, { source_node_id: sourceId, target_node_id: targetId })
                 .then(resp => addEdgeToCy(resp.data))
                 .catch(() => alert('Edge creation failed'));
@@ -702,6 +708,35 @@
         cy.on('zoom', applyLOD);
         applyLOD();
 
+        // Reset helpers
+        function visibleCount(){
+          let shown = 0; cy.nodes().forEach(n=>{ if (n.style('display') !== 'none' && !n.data('origParent')) shown++; }); return shown;
+        }
+        function resetCollapsed(){
+          collapsedGroups.clear(); persistCollapsed();
+          cy.nodes('[?is_group]').forEach(g=>{ expandGroup(g.id()); });
+        }
+        function resetFilters(){
+          const s=document.getElementById('statusFilter'); if (s) s.value='';
+          const q=document.getElementById('searchBox'); if (q) q.value='';
+          applySearchAndFilter();
+        }
+        function showAllAndFit(){
+          resetCollapsed(); resetFilters();
+          cy.nodes().forEach(n=>{ if (!n.data('origParent')) n.style('display','element'); });
+          cy.zoom(1); cy.fit();
+          console.log('[AutoFix] showAllAndFit applied. nodes:', cy.nodes().length, 'visible:', visibleCount());
+        }
+        document.getElementById('btnResetView').addEventListener('click', showAllAndFit);
+
+        // Auto self-heal: if after initial render ничего не видно — сбросить вид
+        setTimeout(() => {
+          try {
+            const vis = visibleCount();
+            if (cy.nodes().length > 0 && vis === 0) { showAllAndFit(); }
+          } catch {}
+        }, 300);
+
         // Search/filter
         function applySearchAndFilter() {
           const q = (document.getElementById('searchBox').value || '').toLowerCase();
@@ -829,18 +864,19 @@
           if (k === '/') { e.preventDefault(); document.getElementById('searchBox').focus(); return; }
         });
 
-        // Rename project
-        document.getElementById('btnRenameProject').addEventListener('click', async () => {
-          const cur = document.title.replace(' - Graph','');
-          const name = prompt('New board name', cur);
+        // Inline rename project by editing title
+        const projTitleEl = document.getElementById('projTitle');
+        async function commitProjectTitle(){
+          const name = (projTitleEl.textContent || '').trim();
           if (!name) return;
           try {
             const resp = await patchJSON(`/api/v1/projects/${projectId}`, { name });
             document.title = `${resp.data.name} - Graph`;
-            document.querySelector('h1').textContent = resp.data.name;
-            alert('Board renamed');
-          } catch(e) { alert('Rename failed'); }
-        });
+            projTitleEl.textContent = resp.data.name;
+          } catch(e) { /* ignore */ }
+        }
+        projTitleEl.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); projTitleEl.blur(); }});
+        projTitleEl.addEventListener('blur', commitProjectTitle);
 
         // Export JSON (nodes+edges)
         document.getElementById('btnExportJSON').addEventListener('click', async () => {

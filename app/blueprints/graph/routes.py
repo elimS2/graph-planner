@@ -142,6 +142,11 @@ def create_edge(project_id: str):
     payload = request.get_json(force=True) or {}
     payload["project_id"] = project_id
     data = EdgeSchema().load(payload)
+    # Validate source/target existence in this project to avoid ghost edges
+    src = db.session.get(Node, data["source_node_id"]) if "source_node_id" in data else None
+    tgt = db.session.get(Node, data["target_node_id"]) if "target_node_id" in data else None
+    if not src or not tgt or src.project_id != project_id or tgt.project_id != project_id:
+        return jsonify({"errors": [{"status": 400, "title": "Invalid edge", "detail": "Source/target missing or not in project"}]}), 400
     item = Edge(**data)
     try:
         db.session.add(item)
@@ -245,7 +250,16 @@ def list_cost_entries(node_id: str):
 
 @bp.get("/projects/<project_id>/edges")
 def list_edges(project_id: str):
-    items = db.session.query(Edge).filter_by(project_id=project_id).all()
+    from sqlalchemy.orm import aliased
+    S = aliased(Node)
+    T = aliased(Node)
+    items = (
+        db.session.query(Edge)
+        .join(S, S.id == Edge.source_node_id)
+        .join(T, T.id == Edge.target_node_id)
+        .filter(Edge.project_id == project_id)
+        .all()
+    )
     return jsonify({"data": EdgeSchema(many=True).dump(items)})
 
 

@@ -512,5 +512,6 @@ List Graph (response excerpt):
  - [x] 2025-08-30T02:15:00Z — Zoom controls (+/−) with smooth animation and UI buttons.
  - [x] 2025-08-30T02:20:00Z — Wheel zoom revamped: anchored to cursor, RAF-smoothing, responsive.
  - [x] 2025-08-30T02:25:00Z — Node sizing uses descendants count (reachability via edges).
+ - [x] 2025-08-30T02:30:00Z — Inline board rename by clicking the title; removed Rename button.
 
 
