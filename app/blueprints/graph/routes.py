@@ -3,13 +3,33 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ...extensions import db
 from flask_login import login_required
-from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout, StatusChange
+from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout, StatusChange, User
 from ...schemas import ProjectSchema, NodeSchema, EdgeSchema, CommentSchema, TimeEntrySchema, CostEntrySchema, StatusChangeSchema
+from flask_login import current_user
 from ...services.nodes import recompute_importance_score, recompute_group_status
 from ...services.graph_analysis import longest_path_by_planned_hours
 
 
 bp = Blueprint("graph", __name__, url_prefix="/api/v1")
+# Helpers
+def _fallback_user_id() -> str:
+    """Return a valid user id to attach to audit records when unauthenticated.
+    Uses current_user if authenticated; otherwise ensures a demo user exists.
+    """
+    try:
+        if current_user.is_authenticated:  # type: ignore[attr-defined]
+            uid = current_user.get_id()  # type: ignore[attr-defined]
+            if uid:
+                return uid
+    except Exception:
+        pass
+    # Find or create a demo user
+    u = db.session.query(User).filter_by(email="demo@example.com").first()
+    if not u:
+        u = User(email="demo@example.com", name="Demo User")
+        db.session.add(u)
+        db.session.flush()
+    return u.id
 
 
 @bp.get("/health")
@@ -180,6 +200,8 @@ def delete_edge(id: str):
 def add_comment(node_id: str):
     payload = request.get_json(force=True) or {}
     payload["node_id"] = node_id
+    # Force a valid user id (ignore client-provided value)
+    payload["user_id"] = _fallback_user_id()
     data = CommentSchema().load(payload)
     item = Comment(**data)
     db.session.add(item)
@@ -199,6 +221,8 @@ def list_comments(node_id: str):
 def add_time_entry(node_id: str):
     payload = request.get_json(force=True) or {}
     payload["node_id"] = node_id
+    # Ensure a valid user id
+    payload["user_id"] = _fallback_user_id()
     data = TimeEntrySchema().load(payload)
     item = TimeEntry(**data)
     db.session.add(item)

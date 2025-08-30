@@ -226,12 +226,15 @@
             savedX: (n.position && typeof n.position.x === 'number') ? n.position.x : null,
             savedY: (n.position && typeof n.position.y === 'number') ? n.position.y : null,
             created_at: n.created_at,
+            priority: (n.priority || 'normal'),
             descendants: 0
           },
           position: n.position
         }));
-        const edges = graph.edges.map(e => ({ data: { id: String(e.id), source: String(e.source_node_id), target: String(e.target_node_id), type: e.type, weight: e.weight }}));
-        // compute descendants counts on client (outgoing reachability)
+        const prioById = new Map(nodes.map(ne => [ne.data.id, ne.data.priority]));
+        const statusById = new Map(nodes.map(ne => [ne.data.id, ne.data.status]));
+        const edges = graph.edges.map(e => ({ data: { id: String(e.id), source: String(e.source_node_id), target: String(e.target_node_id), type: e.type, weight: e.weight, targetPriority: prioById.get(String(e.target_node_id)) || 'normal', targetStatus: statusById.get(String(e.target_node_id)) || 'planned', pathPriority: 'none' }}));
+        // compute descendants counts on client (outgoing reachability) and priority paths
         const idToNode = new Map();
         nodes.forEach(n => idToNode.set(n.data.id, n));
         const adj = new Map();
@@ -248,6 +251,33 @@
           return c;
         }
         nodes.forEach(n => { n.data.descendants = countDesc(n.data.id); });
+        // mark edges on any path to high/critical (not done) targets
+        const incoming = new Map(); nodes.forEach(n=>incoming.set(n.data.id, []));
+        graph.edges.forEach(e => { (incoming.get(String(e.target_node_id))||[]).push(String(e.source_node_id)); });
+        const pathPrio = new Map(graph.edges.map(e=>[String(e.id), 'none']));
+        const queue = [];
+        nodes.forEach(n => {
+          const pr = n.data.priority || 'normal';
+          const st = n.data.status || 'planned';
+          if ((pr==='high' || pr==='critical') && st!=='done') queue.push(n.data.id);
+        });
+        while (queue.length){
+          const tgt = queue.shift();
+          const preds = incoming.get(tgt) || [];
+          preds.forEach(src => {
+            const edge = graph.edges.find(e => String(e.source_node_id)===src && String(e.target_node_id)===tgt);
+            if (edge){
+              const pr = prioById.get(tgt) || 'normal';
+              const key = String(edge.id);
+              const desired = (pr==='critical') ? 'critical' : (pr==='high' ? 'high' : 'none');
+              if (desired!=='none' && pathPrio.get(key)!==desired){
+                pathPrio.set(key, desired);
+                queue.push(src);
+              }
+            }
+          });
+        }
+        edges.forEach(e => { e.data.pathPriority = pathPrio.get(e.data.id) || 'none'; });
         return [...nodes, ...edges];
       }
 
@@ -261,6 +291,10 @@
           style: [
             { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(descendants, 0, 20, 20, 80)', 'height': 'mapData(descendants, 0, 20, 20, 80)'} },
             { selector: 'edge', style: { 'line-color': '#64748b', 'width': 1.5, 'curve-style': 'bezier', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle', 'arrow-scale': 1.2 } },
+            { selector: 'edge[pathPriority = "high"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' } },
+            { selector: 'edge[pathPriority = "critical"]', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444' } },
+            { selector: 'edge[targetPriority = "high"][targetStatus != "done"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' } },
+            { selector: 'edge[targetPriority = "critical"][targetStatus != "done"]', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444' } },
             /* Cytoscape doesn't support :hover selector here; remove to avoid errors */
             /* { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } }, */
             { selector: 'edge:selected', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'width': 2.5, 'arrow-scale': 1.5 } },
@@ -294,6 +328,42 @@
           layout: { name: allHavePositions ? 'preset' : 'preset' }
         });
         cy.fit();
+
+        // Recompute priority-based path coloring on current graph
+        function recomputePriorityPaths(){
+          const rank = (p) => (p==='critical'?2:(p==='high'?1:0));
+          // node state: highest priority reachable downstream from this node (including its own if not done)
+          const nodeState = new Map();
+          cy.nodes().forEach(n=>nodeState.set(n.id(), 0));
+          // seed nodes: those with priority high/critical and not done
+          const seeds = [];
+          cy.nodes().forEach(n=>{
+            const status = String(n.data('status')||'planned');
+            if (status !== 'done'){
+              const pr = String(n.data('priority')||'normal');
+              const r = rank(pr);
+              if (r>0){ nodeState.set(n.id(), r); seeds.push(n.id()); }
+            }
+          });
+          cy.edges().forEach(e=>e.data('pathPriority','none'));
+          // reverse BFS propagation
+          const queue = [...seeds];
+          while(queue.length){
+            const tgtId = queue.shift();
+            const tgtRank = nodeState.get(tgtId)||0;
+            cy.edges(`[target = "${tgtId}"]`).forEach(e=>{
+              // set edge path priority
+              if (tgtRank===2) e.data('pathPriority','critical');
+              else if (tgtRank===1) e.data('pathPriority','high');
+              // propagate to source node
+              const srcId = String(e.data('source'));
+              const cur = nodeState.get(srcId)||0;
+              if (tgtRank>cur){ nodeState.set(srcId, tgtRank); queue.push(srcId); }
+            });
+          }
+        }
+        // initial compute
+        recomputePriorityPaths();
 
         function applyInitialPositions() {
           // Set saved positions for nodes that have them
@@ -429,7 +499,9 @@
           postJSON(`/api/v1/nodes/${n.id}/position`, { x: pos.x, y: pos.y }).catch(()=>{});
         }
         function addEdgeToCy(e) {
-          cy.add({ group: 'edges', data: { id: e.id, source: e.source_node_id, target: e.target_node_id, type: e.type, weight: e.weight } });
+          const tgt = cy.getElementById(String(e.target_node_id));
+          const tp = tgt && tgt.nonempty() ? (tgt.data('priority') || 'normal') : 'normal';
+          cy.add({ group: 'edges', data: { id: e.id, source: e.source_node_id, target: e.target_node_id, type: e.type, weight: e.weight, targetPriority: tp } });
           // recompute descendants sizes quickly
           const nodes = cy.nodes();
           const adj = new Map();
@@ -437,13 +509,14 @@
           cy.edges().forEach(ed => { const a = adj.get(ed.data('source')); if (a) a.push(ed.data('target')); });
           function countDesc(start){ const vis = new Set([start]); const q=[start]; let c=0; while(q.length){ const cur=q.shift(); (adj.get(cur)||[]).forEach(t=>{ if(!vis.has(t)){vis.add(t); q.push(t); c++; } }); } return c; }
           nodes.forEach(n => n.data('descendants', countDesc(n.id())));
+          recomputePriorityPaths();
         }
 
         document.getElementById('commentForm').addEventListener('submit', async (e) => {
           e.preventDefault();
           if (!selectedNodeId) return;
           const fd = new FormData(e.target);
-          await postJSON(`/api/v1/nodes/${selectedNodeId}/comments`, { user_id: fd.get('user_id'), body: fd.get('body') });
+          await postJSON(`/api/v1/nodes/${selectedNodeId}/comments`, { body: fd.get('body') });
           e.target.reset();
           await refreshLists(selectedNodeId);
         });
@@ -464,6 +537,7 @@
           const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { status: value });
           const n = cy.getElementById(selectedNodeId);
           n.data('status', resp.data.status);
+          recomputePriorityPaths();
         });
 
         // Priority change handler
@@ -473,6 +547,7 @@
           const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { priority: value });
           const n = cy.getElementById(selectedNodeId);
           n.data('priority', resp.data.priority || value);
+          recomputePriorityPaths();
         });
 
         document.getElementById('costForm').addEventListener('submit', async (e) => {
