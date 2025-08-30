@@ -80,3 +80,12 @@ node_modules/
 
 # Misc
 __pypackages__/
+
+# Cursor IDE
+.cursor/
+
+# Scripts output
+scripts/out/
+
+# Test artifacts
+scripts/tests/json-result.json
