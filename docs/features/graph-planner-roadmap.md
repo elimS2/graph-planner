@@ -2,7 +2,7 @@
 
 Status: Draft
 Owner: Team
-Last Updated: 2025-08-29T14:29:08Z
+Last Updated: 2025-08-30T01:08:51Z
 
 ---
 
@@ -445,6 +445,10 @@ List Graph (response excerpt):
 ### 15. Next Iteration Backlog
 
 - Auth UI: login/logout page, current user in header; protect write ops.
+  - [x] Minimal Auth UI added in headers of `index.html` and `project.html` (Login/Logout, current user via `/api/v1/auth/me`).
+  - [x] All write endpoints in `app/blueprints/graph/routes.py` protected with `@login_required` (projects/nodes/edges/comments/time/cost/groups/position).
+  - [x] Client now shows a friendly "Login required" alert on 401 responses.
+  - [ ] Replace prompt-based login with proper form/modal and validation.
 - Roles & Permissions: admin/user; limit node/edge edits for non-admins.
 - Tags & Filters: tag CRUD, filter by tag/assignee/status; quick tag add.
 - Saved Views: persist viewport, filters, selection; list of saved views.
@@ -491,5 +495,7 @@ List Graph (response excerpt):
 - [x] 2025-08-29T08:03:38Z — Node positions persistence and preset layout added.
 - [x] 2025-08-29T11:14:30Z — Compound nodes UX: dice-5 icon with transparent background, show only when collapsed; robust collapse/expand with persisted state; string IDs normalization; saved coordinates for groups respected; LOD ignores hidden children.
  - [x] 2025-08-29T14:27:31Z — Home UI for creating boards (projects): list existing, create form, Create & Open action.
+ - [x] 2025-08-30T01:08:51Z — Auth MVP: protected write endpoints with login_required; login/logout UI in headers; 401 handling in client; roadmap updated.
+ - [x] 2025-08-30T04:13:30Z — Board rename via PATCH /api/v1/projects/{id}; Rename buttons in project header and boards list.
 
 

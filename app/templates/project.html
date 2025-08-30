@@ -11,7 +11,13 @@
     <div class="max-w-6xl mx-auto p-6 space-y-4">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-semibold">{{ project.name }}</h1>
-        <a class="text-blue-600 underline" href="/">Home</a>
+        <div class="flex items-center gap-3">
+          <button id="btnRenameProject" class="px-3 py-1 bg-blue-600 text-white rounded">Rename</button>
+          <span id="userEmail" class="text-sm text-slate-600 hidden"></span>
+          <button id="btnLogin" class="px-3 py-1 bg-slate-700 text-white rounded">Login</button>
+          <button id="btnLogout" class="px-3 py-1 bg-slate-500 text-white rounded hidden">Logout</button>
+          <a class="text-blue-600 underline" href="/">Home</a>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
@@ -100,6 +106,46 @@
     <script>
       const projectId = "{{ project.id }}";
 
+      async function apiMe(){
+        const r = await fetch('/api/v1/auth/me');
+        const j = await r.json();
+        return j && j.data;
+      }
+      async function apiLogin(email, password){
+        const r = await fetch('/api/v1/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password})});
+        if (!r.ok) throw new Error('Login failed');
+        return r.json();
+      }
+      async function apiLogout(){ await fetch('/api/v1/auth/logout', {method:'POST'}); }
+
+      function wireAuthHeader(){
+        const emailEl = document.getElementById('userEmail');
+        const btnLogin = document.getElementById('btnLogin');
+        const btnLogout = document.getElementById('btnLogout');
+        async function refresh(){
+          const me = await apiMe();
+          if (me && me.id){
+            emailEl.textContent = me.id;
+            emailEl.classList.remove('hidden');
+            btnLogout.classList.remove('hidden');
+            btnLogin.classList.add('hidden');
+          } else {
+            emailEl.classList.add('hidden');
+            btnLogout.classList.add('hidden');
+            btnLogin.classList.remove('hidden');
+          }
+        }
+        btnLogin.addEventListener('click', async ()=>{
+          const email = prompt('Email');
+          const password = prompt('Password');
+          if (!email || !password) return;
+          try { await apiLogin(email, password); } catch { alert('Invalid credentials'); }
+          refresh();
+        });
+        btnLogout.addEventListener('click', async ()=>{ await apiLogout(); refresh(); });
+        refresh();
+      }
+
       async function fetchGraph() {
         const [nodesRes, edgesRes] = await Promise.all([
           fetch(`/api/v1/projects/${projectId}/nodes`),
@@ -139,6 +185,7 @@
       }
 
       (async function init() {
+        wireAuthHeader();
         let graph = await fetchGraph();
         const allHavePositions = Array.isArray(graph.nodes) && graph.nodes.length > 0 && graph.nodes.every(n => n.position && typeof n.position.x === 'number' && typeof n.position.y === 'number');
         const cy = cytoscape({
@@ -244,16 +291,19 @@
 
         async function postJSON(url, data) {
           const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+          if (res.status === 401) { alert('Login required'); throw new Error('Unauthorized'); }
           if (!res.ok) throw new Error('Request failed');
           return res.json();
         }
         async function patchJSON(url, data) {
           const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+          if (res.status === 401) { alert('Login required'); throw new Error('Unauthorized'); }
           if (!res.ok) throw new Error('Request failed');
           return res.json();
         }
         async function del(url) {
           const res = await fetch(url, { method: 'DELETE' });
+          if (res.status === 401) { alert('Login required'); throw new Error('Unauthorized'); }
           if (!res.ok && res.status !== 204) throw new Error('Request failed');
         }
 
@@ -538,6 +588,19 @@
           if (e.key === 'f') document.getElementById('btnFit').click();
           if (e.key === 'Delete') document.getElementById(selectedNodeId ? 'btnDeleteNode' : 'btnDeleteEdge').click();
           if (e.key === '/' ) document.getElementById('searchBox').focus();
+        });
+
+        // Rename project
+        document.getElementById('btnRenameProject').addEventListener('click', async () => {
+          const cur = document.title.replace(' - Graph','');
+          const name = prompt('New board name', cur);
+          if (!name) return;
+          try {
+            const resp = await patchJSON(`/api/v1/projects/${projectId}`, { name });
+            document.title = `${resp.data.name} - Graph`;
+            document.querySelector('h1').textContent = resp.data.name;
+            alert('Board renamed');
+          } catch(e) { alert('Rename failed'); }
         });
 
         // Export JSON (nodes+edges)

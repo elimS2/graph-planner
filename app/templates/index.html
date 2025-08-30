@@ -11,7 +11,12 @@
     <div class="max-w-4xl mx-auto p-6 space-y-6">
       <header class="flex items-center justify-between">
         <h1 class="text-2xl font-semibold">Graph Tracker</h1>
-        <a class="text-blue-600 underline" href="/api/v1/health">Health check</a>
+        <div class="flex items-center gap-3" id="authBox">
+          <span id="userEmail" class="text-sm text-slate-600 hidden"></span>
+          <button id="btnLogin" class="px-3 py-1 bg-slate-700 text-white rounded">Login</button>
+          <button id="btnLogout" class="px-3 py-1 bg-slate-500 text-white rounded hidden">Logout</button>
+          <a class="text-blue-600 underline" href="/api/v1/health">Health</a>
+        </div>
       </header>
 
       <section class="bg-white rounded shadow p-4">
@@ -35,11 +40,14 @@
         <ul class="mt-3 divide-y" x-show="projects.length > 0">
           <template x-for="p in projects" :key="p.id">
             <li class="py-2 flex items-center justify-between">
-              <div>
+              <div class="flex items-center gap-3">
                 <a class="text-blue-700 hover:underline font-medium" :href="`/projects/${p.id}`" x-text="p.name"></a>
                 <span class="ml-2 text-xs text-slate-500" x-text="p.created_at"></span>
               </div>
-              <a class="text-slate-600 hover:text-slate-900" :href="`/projects/${p.id}`">Open →</a>
+              <div class="flex items-center gap-2">
+                <button @click="renameProject(p)" class="px-2 py-1 text-xs bg-blue-600 text-white rounded">Rename</button>
+                <a class="text-slate-600 hover:text-slate-900" :href="`/projects/${p.id}`">Open →</a>
+              </div>
             </li>
           </template>
         </ul>
@@ -47,12 +55,55 @@
     </div>
 
     <script>
+      async function apiMe(){
+        const r = await fetch('/api/v1/auth/me');
+        const j = await r.json();
+        return j && j.data;
+      }
+      async function apiLogin(email, password){
+        const r = await fetch('/api/v1/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password})});
+        if (!r.ok) throw new Error('Login failed');
+        return r.json();
+      }
+      async function apiLogout(){
+        await fetch('/api/v1/auth/logout', {method:'POST'});
+      }
+
+      function wireAuthHeader(){
+        const emailEl = document.getElementById('userEmail');
+        const btnLogin = document.getElementById('btnLogin');
+        const btnLogout = document.getElementById('btnLogout');
+        async function refresh(){
+          const me = await apiMe();
+          if (me && me.id){
+            emailEl.textContent = me.id; // simple display
+            emailEl.classList.remove('hidden');
+            btnLogout.classList.remove('hidden');
+            btnLogin.classList.add('hidden');
+          } else {
+            emailEl.classList.add('hidden');
+            btnLogout.classList.add('hidden');
+            btnLogin.classList.remove('hidden');
+          }
+        }
+        btnLogin.addEventListener('click', async ()=>{
+          const email = prompt('Email');
+          const password = prompt('Password');
+          if (!email || !password) return;
+          try { await apiLogin(email, password); } catch { alert('Invalid credentials'); }
+          refresh();
+        });
+        btnLogout.addEventListener('click', async ()=>{ await apiLogout(); refresh(); });
+        refresh();
+      }
+
       function projectsPage() {
         return {
           loading: false,
           projects: [],
           newName: '',
           async init() {
+            wireAuthHeader();
             this.loading = true;
             try {
               const res = await fetch('/api/v1/projects');
@@ -61,6 +112,14 @@
             } finally {
               this.loading = false;
             }
+          },
+          async renameProject(p){
+            const newName = prompt('New board name', p.name || '');
+            if (!newName) return;
+            const res = await fetch(`/api/v1/projects/${p.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:newName}) });
+            if (!res.ok) { alert('Rename failed (login required?)'); return; }
+            const j = await res.json();
+            p.name = j.data.name;
           },
           async createProject(openAfter) {
             const name = (this.newName || '').trim();

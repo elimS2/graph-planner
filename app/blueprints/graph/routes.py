@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from ...extensions import db
+from flask_login import login_required
 from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout
 from ...schemas import ProjectSchema, NodeSchema, EdgeSchema, CommentSchema, TimeEntrySchema, CostEntrySchema
 from ...services.nodes import recompute_importance_score, recompute_group_status
@@ -24,6 +25,7 @@ def list_projects():
 
 
 @bp.post("/projects")
+@login_required
 def create_project():
     payload = request.get_json(force=True) or {}
     data = ProjectSchema().load(payload)
@@ -42,6 +44,7 @@ def get_project(id: str):
 
 
 @bp.patch("/projects/<id>")
+@login_required
 def update_project(id: str):
     item = db.session.get(Project, id)
     if not item:
@@ -72,6 +75,7 @@ def list_nodes(project_id: str):
 
 
 @bp.post("/projects/<project_id>/nodes")
+@login_required
 def create_node(project_id: str):
     payload = request.get_json(force=True) or {}
     payload["project_id"] = project_id
@@ -92,6 +96,7 @@ def get_node(id: str):
 
 
 @bp.patch("/nodes/<id>")
+@login_required
 def update_node(id: str):
     item = db.session.get(Node, id)
     if not item:
@@ -109,6 +114,7 @@ def update_node(id: str):
 
 
 @bp.delete("/nodes/<id>")
+@login_required
 def delete_node(id: str):
     item = db.session.get(Node, id)
     if not item:
@@ -120,6 +126,7 @@ def delete_node(id: str):
 
 # Edges
 @bp.post("/projects/<project_id>/edges")
+@login_required
 def create_edge(project_id: str):
     payload = request.get_json(force=True) or {}
     payload["project_id"] = project_id
@@ -137,6 +144,7 @@ def create_edge(project_id: str):
 
 
 @bp.delete("/edges/<id>")
+@login_required
 def delete_edge(id: str):
     item = db.session.get(Edge, id)
     if not item:
@@ -152,6 +160,7 @@ def delete_edge(id: str):
 
 # Comments
 @bp.post("/nodes/<node_id>/comments")
+@login_required
 def add_comment(node_id: str):
     payload = request.get_json(force=True) or {}
     payload["node_id"] = node_id
@@ -170,6 +179,7 @@ def list_comments(node_id: str):
 
 # Time entries
 @bp.post("/nodes/<node_id>/time-entries")
+@login_required
 def add_time_entry(node_id: str):
     payload = request.get_json(force=True) or {}
     payload["node_id"] = node_id
@@ -197,6 +207,7 @@ def list_time_entries(node_id: str):
 
 # Cost entries
 @bp.post("/nodes/<node_id>/cost-entries")
+@login_required
 def add_cost_entry(node_id: str):
     payload = request.get_json(force=True) or {}
     payload["node_id"] = node_id
@@ -228,6 +239,7 @@ def list_edges(project_id: str):
 
 
 @bp.post("/nodes/<node_id>/position")
+@login_required
 def save_node_position(node_id: str):
     payload = request.get_json(force=True) or {}
     x = float(payload.get("x", 0))
@@ -268,6 +280,7 @@ def project_metrics(project_id: str):
 
 
 @bp.post("/projects/<project_id>/groups")
+@login_required
 def group_nodes(project_id: str):
     payload = request.get_json(force=True) or {}
     title = (payload.get("title") or "Group").strip()
@@ -285,6 +298,7 @@ def group_nodes(project_id: str):
 
 
 @bp.post("/groups/<group_id>/ungroup")
+@login_required
 def ungroup_nodes(group_id: str):
     group = db.session.get(Node, group_id)
     if not group or not group.is_group:
