@@ -520,27 +520,46 @@
           selEl.textContent = '—';
         });
 
-        document.getElementById('btnAddEdge').addEventListener('click', async () => {
-          alert('Pick source node, then target node');
-          let sourceId = null;
+        // Unified connect mode: via button or hold 'c'. ESC / click background cancels. Prevent dup/invalid.
+        (function connectMode(){
+          let active = false; let sourceId = null; let timeoutId = null;
+          const srcClass = 'connect-source';
+          // hint overlay
+          const hint = document.createElement('div');
+          hint.className = 'pointer-events-none fixed inset-x-0 top-16 text-center z-40';
+          hint.style.display = 'none';
+          hint.innerHTML = '<span class="inline-block px-3 py-1 bg-black/70 text-white rounded">Connect mode: click source, then target (ESC to cancel, hold C/С for quick connect)</span>';
+          document.body.appendChild(hint);
+          function setActive(on){
+            active = on; if (!on) { sourceId = null; cy.nodes().removeClass(srcClass); if (timeoutId) { clearTimeout(timeoutId); timeoutId=null; } cy.container().style.cursor=''; hint.style.display='none'; }
+            else { cy.container().style.cursor='crosshair'; hint.style.display=''; timeoutId = setTimeout(()=>setActive(false), 10000); }
+          }
+          function cancel(){ setActive(false); }
+          function tryCreateEdge(targetId){
+            if (!sourceId || sourceId === targetId) return;
+            const srcEl = cy.getElementById(sourceId); const tgtEl = cy.getElementById(targetId);
+            if (!srcEl.nonempty() || !tgtEl.nonempty()) { cancel(); return; }
+            // prevent duplicates
+            const dup = cy.edges().some(e => e.data('source')===sourceId && e.data('target')===targetId);
+            if (dup) { cancel(); return; }
+            postJSON(`/api/v1/projects/${projectId}/edges`, { source_node_id: sourceId, target_node_id: targetId })
+              .then(resp => addEdgeToCy(resp.data))
+              .finally(() => cancel());
+          }
           const pickHandler = (evt) => {
-            if (!sourceId) {
-              sourceId = evt.target.data('id');
-            } else {
-              const targetId = evt.target.data('id');
-              cy.off('tap', 'node', pickHandler);
-              // guard against invalid ids
-              if (!cy.getElementById(sourceId).nonempty() || !cy.getElementById(targetId).nonempty()) {
-                alert('Edge creation failed');
-                return;
-              }
-              postJSON(`/api/v1/projects/${projectId}/edges`, { source_node_id: sourceId, target_node_id: targetId })
-                .then(resp => addEdgeToCy(resp.data))
-                .catch(() => alert('Edge creation failed'));
-            }
+            if (!active) return;
+            const id = evt.target.data('id');
+            if (!sourceId) { sourceId = id; cy.getElementById(sourceId).addClass(srcClass); }
+            else { tryCreateEdge(id); }
           };
           cy.on('tap', 'node', pickHandler);
-        });
+          cy.on('tap', (evt) => { if (active && evt.target === cy) cancel(); });
+          const isConnectKey = (k) => { const v=(k||'').toLowerCase(); return v==='c' || v==='с'; };
+          document.addEventListener('keydown', (e)=>{ if (isConnectKey(e.key) && !active){ setActive(true); }});
+          document.addEventListener('keyup', (e)=>{ if (isConnectKey(e.key)){ cancel(); }});
+          document.getElementById('btnAddEdge').addEventListener('click', ()=>{ setActive(true); });
+          document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && active){ e.preventDefault(); cancel(); }});
+        })();
 
         // Edge delete helper (invoked by keyboard shortcut)
         async function deleteSelectedEdge(){
