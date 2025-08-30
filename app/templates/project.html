@@ -60,6 +60,10 @@
             <div id="selNode" class="text-sm font-mono text-slate-800">—</div>
           </div>
           <div>
+            <label class="block text-sm text-slate-600">Created At</label>
+            <div id="createdAt" class="text-sm text-slate-800">—</div>
+          </div>
+          <div>
             <label class="block text-sm">Status</label>
             <select id="statusSelect" class="w-full border rounded p-2">
               <option value="planned">planned</option>
@@ -67,6 +71,10 @@
               <option value="done">done</option>
               <option value="blocked">blocked</option>
             </select>
+          </div>
+          <div>
+            <label class="block text-sm text-slate-600">Descendants (via edges)</label>
+            <div id="descCount" class="text-sm text-slate-800">0</div>
           </div>
           <div>
             <h3 class="text-sm font-semibold">Comments</h3>
@@ -112,6 +120,21 @@
 
     <script>
       const projectId = "{{ project.id }}";
+
+      function formatDate(iso) {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso);
+        try {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+          const base = new Intl.DateTimeFormat(navigator.language || 'en-US', {
+            year: 'numeric', month: 'short', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+            timeZoneName: 'short'
+          }).format(d);
+          return `${base} (${tz})`;
+        } catch { return d.toLocaleString(); }
+      }
 
       async function apiMe(){
         const r = await fetch('/api/v1/auth/me');
@@ -183,7 +206,8 @@
             parent: (n.parent_id !== null && n.parent_id !== undefined) ? String(n.parent_id) : undefined,
             dotIcon: dotIcon,
             savedX: (n.position && typeof n.position.x === 'number') ? n.position.x : null,
-            savedY: (n.position && typeof n.position.y === 'number') ? n.position.y : null
+            savedY: (n.position && typeof n.position.y === 'number') ? n.position.y : null,
+            created_at: n.created_at
           },
           position: n.position
         }));
@@ -264,7 +288,9 @@
           commentsList.innerHTML = '';
           c.data.forEach(x => {
             const li = document.createElement('li');
-            li.textContent = `${x.body}`;
+            const body = document.createElement('span'); body.textContent = x.body;
+            const time = document.createElement('span'); time.className = 'ml-2 text-xs text-slate-500'; time.textContent = formatDate(x.created_at);
+            li.appendChild(body); li.appendChild(time);
             commentsList.appendChild(li);
           });
           const timeList = document.getElementById('timeList');
@@ -278,7 +304,9 @@
           costList.innerHTML = '';
           k.data.forEach(x => {
             const li = document.createElement('li');
-            li.textContent = `${x.amount} ${x.currency || 'USD'}`;
+            const amt = document.createElement('span'); amt.textContent = `${x.amount} ${x.currency || 'USD'}`;
+            const when = document.createElement('span'); when.className = 'ml-2 text-xs text-slate-500'; when.textContent = formatDate(x.incurred_at);
+            li.appendChild(amt); li.appendChild(when);
             costList.appendChild(li);
           });
         }
@@ -288,8 +316,26 @@
           selEl.textContent = selectedNodeId;
           const titleEl = document.getElementById('selNodeTitle');
           if (titleEl) titleEl.textContent = String(evt.target.data('label') || '—');
+          const createdEl = document.getElementById('createdAt');
+          if (createdEl) createdEl.textContent = formatDate(evt.target.data('created_at'));
           const delBtn = document.getElementById('btnDeleteNodePanel');
           if (delBtn) delBtn.classList.remove('hidden');
+          // compute descendants via outgoing edges (reachability)
+          const start = cy.getElementById(selectedNodeId);
+          let count = 0;
+          if (start && start.nonempty()) {
+            const visited = new Set([start.id()]);
+            const queue = [start];
+            while (queue.length) {
+              const cur = queue.shift();
+              const out = cur.outgoers('edge');
+              out.targets().forEach(t => {
+                if (!visited.has(t.id())) { visited.add(t.id()); queue.push(t); count++; }
+              });
+            }
+          }
+          const dc = document.getElementById('descCount');
+          if (dc) dc.textContent = String(count);
           selectedEdgeId = null;
           // set status select to node status
           const sel = document.getElementById('statusSelect');

@@ -507,5 +507,7 @@ List Graph (response excerpt):
  - [x] 2025-08-30T01:50:00Z — Delete Node moved to Task Panel; Delete key shortcut updated.
  - [x] 2025-08-30T01:55:00Z — Removed obsolete Edit Node toolbar button; inline title editing is primary.
  - [x] 2025-08-30T02:00:00Z — Resizable Task Panel with drag handle; width persisted across sessions.
+ - [x] 2025-08-30T02:05:00Z — Task Panel shows descendants count (reachability via outgoing edges).
+ - [x] 2025-08-30T02:10:00Z — Task Panel displays node creation date (`created_at`).
 
 
