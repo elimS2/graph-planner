@@ -502,5 +502,7 @@ List Graph (response excerpt):
   - [x] 2025-08-30T01:28:11Z — Arrow styles tuned: smaller arrowheads and lighter hover/selected thickness.
  - [x] 2025-08-30T01:30:00Z — Task Panel shows selected node title.
  - [x] 2025-08-30T01:35:00Z — Task Panel: inline edit node title (Enter/blur → PATCH /nodes/{id}).
+ - [x] 2025-08-30T01:40:00Z — Project page layout: full-height workspace, no extra side paddings.
+ - [x] 2025-08-30T01:45:00Z — Toggle Sidebar button with persisted state; graph resizes accordingly.
 
 

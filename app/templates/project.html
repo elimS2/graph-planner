@@ -8,8 +8,8 @@
     <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
-    <div class="max-w-6xl mx-auto p-6 space-y-4">
-      <div class="flex items-center justify-between">
+    <div class="flex flex-col h-screen">
+      <div class="flex items-center justify-between px-4 py-3">
         <h1 class="text-2xl font-semibold">{{ project.name }}</h1>
         <div class="flex items-center gap-3">
           <button id="btnRenameProject" class="px-3 py-1 bg-blue-600 text-white rounded">Rename</button>
@@ -20,9 +20,9 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div class="lg:col-span-3">
-          <div class="mb-3 flex flex-wrap gap-2 items-center">
+      <div class="flex flex-1 overflow-hidden">
+        <div class="flex-1 flex flex-col min-w-0">
+          <div class="px-4 pb-3 flex flex-wrap gap-2 items-center">
             <input id="searchBox" type="text" placeholder="Search nodes..." class="border rounded px-2 py-1" />
             <select id="statusFilter" class="border rounded px-2 py-1">
               <option value="">All</option>
@@ -46,10 +46,11 @@
             <label class="px-3 py-1 bg-slate-700 text-white rounded cursor-pointer">Import JSON<input id="importInput" type="file" accept="application/json" class="hidden" /></label>
             <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
+            <button id="btnToggleSidebar" class="ml-auto px-3 py-1 bg-slate-200 text-slate-800 rounded">Toggle Sidebar</button>
           </div>
-          <div id="cy" class="w-full h-[70vh] bg-white rounded shadow"></div>
+          <div id="cy" class="flex-1 min-h-0 bg-white rounded shadow mx-4 mb-4"></div>
         </div>
-        <aside class="lg:col-span-1 bg-white rounded shadow p-4 space-y-4">
+        <aside id="sidebar" class="w-96 bg-white rounded-l-none rounded shadow p-4 space-y-4 overflow-auto">
           <h2 class="font-medium">Task Panel</h2>
           <div>
             <label class="block text-sm text-slate-600">Selected Node Title</label>
@@ -608,6 +609,25 @@
 
         // Fit
         document.getElementById('btnFit').addEventListener('click', () => cy.fit());
+
+        // Toggle sidebar
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('btnToggleSidebar');
+        function applySidebarVisibility(){
+          const hidden = localStorage.getItem('sidebarHidden') === '1';
+          if (hidden) {
+            sidebar.style.display = 'none';
+          } else {
+            sidebar.style.display = '';
+          }
+          setTimeout(() => cy.resize(), 0);
+        }
+        toggleBtn.addEventListener('click', () => {
+          const hidden = localStorage.getItem('sidebarHidden') === '1';
+          localStorage.setItem('sidebarHidden', hidden ? '0' : '1');
+          applySidebarVisibility();
+        });
+        applySidebarVisibility();
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
