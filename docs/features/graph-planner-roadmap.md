@@ -500,5 +500,7 @@ List Graph (response excerpt):
  - [x] 2025-08-30T04:20:00Z — New nodes appear at viewport top-left; position persisted via /nodes/{id}/position.
  - [x] 2025-08-30T04:25:00Z — Edge direction arrows clarified (triangle heads, hover/selected emphasis).
   - [x] 2025-08-30T01:28:11Z — Arrow styles tuned: smaller arrowheads and lighter hover/selected thickness.
+ - [x] 2025-08-30T01:30:00Z — Task Panel shows selected node title.
+ - [x] 2025-08-30T01:35:00Z — Task Panel: inline edit node title (Enter/blur → PATCH /nodes/{id}).
 
 

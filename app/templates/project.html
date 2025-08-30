@@ -52,6 +52,10 @@
         <aside class="lg:col-span-1 bg-white rounded shadow p-4 space-y-4">
           <h2 class="font-medium">Task Panel</h2>
           <div>
+            <label class="block text-sm text-slate-600">Selected Node Title</label>
+            <div id="selNodeTitle" contenteditable="true" spellcheck="false" class="text-sm text-slate-800 truncate border rounded px-2 py-1 focus:outline-none focus:ring focus:ring-slate-300">—</div>
+          </div>
+          <div>
             <label class="block text-sm text-slate-600">Selected Node ID</label>
             <div id="selNode" class="text-sm font-mono text-slate-800">—</div>
           </div>
@@ -279,6 +283,8 @@
         cy.on('tap', 'node', async (evt) => {
           selectedNodeId = evt.target.data('id');
           selEl.textContent = selectedNodeId;
+          const titleEl = document.getElementById('selNodeTitle');
+          if (titleEl) titleEl.textContent = String(evt.target.data('label') || '—');
           selectedEdgeId = null;
           // set status select to node status
           const sel = document.getElementById('statusSelect');
@@ -377,6 +383,24 @@
           n.data('label', resp.data.title);
           if (resp.data.status) n.data('status', resp.data.status);
         });
+
+        // Inline edit selected node title (Task Panel)
+        const titleInlineEl = document.getElementById('selNodeTitle');
+        function commitInlineTitle(){
+          if (!selectedNodeId) return;
+          const newTitle = (titleInlineEl.textContent || '').trim();
+          if (!newTitle) { return; }
+          patchJSON(`/api/v1/nodes/${selectedNodeId}`, { title: newTitle })
+            .then(resp => {
+              const n = cy.getElementById(selectedNodeId);
+              if (n) n.data('label', resp.data.title);
+            })
+            .catch(()=>{});
+        }
+        titleInlineEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commitInlineTitle(); titleInlineEl.blur(); }
+        });
+        titleInlineEl.addEventListener('blur', () => commitInlineTitle());
 
         document.getElementById('btnDeleteNode').addEventListener('click', async () => {
           if (!selectedNodeId) { alert('Select a node'); return; }
