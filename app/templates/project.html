@@ -33,7 +33,6 @@
             </select>
             <button id="btnAddNode" class="px-3 py-1 bg-blue-600 text-white rounded">+ Node</button>
             <button id="btnAddEdge" class="px-3 py-1 bg-indigo-600 text-white rounded">+ Edge</button>
-            <button id="btnDeleteEdge" class="px-3 py-1 bg-rose-500 text-white rounded">Delete Edge</button>
             <button id="btnCriticalPath" class="px-3 py-1 bg-teal-600 text-white rounded">Critical Path</button>
             <button id="btnGroup" class="px-3 py-1 bg-purple-600 text-white rounded">Group</button>
             <button id="btnUngroup" class="px-3 py-1 bg-purple-500 text-white rounded">Ungroup</button>
@@ -537,13 +536,14 @@
           cy.on('tap', 'node', pickHandler);
         });
 
-        document.getElementById('btnDeleteEdge').addEventListener('click', async () => {
+        // Edge delete helper (invoked by keyboard shortcut)
+        async function deleteSelectedEdge(){
           if (!selectedEdgeId) { alert('Tap an edge to select it'); return; }
           if (!confirm('Delete edge?')) return;
           await del(`/api/v1/edges/${selectedEdgeId}`);
           cy.getElementById(selectedEdgeId).remove();
           selectedEdgeId = null;
-        });
+        }
 
         document.getElementById('btnCriticalPath').addEventListener('click', async () => {
           const res = await fetch(`/api/v1/projects/${projectId}/metrics`).then(r=>r.json());
@@ -811,12 +811,22 @@
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-          if (e.key === 'n') document.getElementById('btnAddNode').click();
-          if (e.key === 'e') document.getElementById('btnAddEdge').click();
-          if (e.key === 'f') document.getElementById('btnFit').click();
-          if (e.key === 'Delete') document.getElementById(selectedNodeId ? 'btnDeleteNodePanel' : 'btnDeleteEdge').click();
-          if (e.key === '/' ) document.getElementById('searchBox').focus();
+          const tag = e.target && e.target.tagName;
+          const isEditable = (e.target && (e.target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'));
+          if (isEditable) return;
+          const k = (e.key || '').toLowerCase();
+          // D = delete edge when edge selected
+          if (k === 'd' && selectedEdgeId && !selectedNodeId) { e.preventDefault(); deleteSelectedEdge(); return; }
+          if (k === 'n') { e.preventDefault(); document.getElementById('btnAddNode').click(); return; }
+          if (k === 'e') { e.preventDefault(); document.getElementById('btnAddEdge').click(); return; }
+          if (k === 'f') { e.preventDefault(); document.getElementById('btnFit').click(); return; }
+          if (e.key === 'Delete') {
+            e.preventDefault();
+            if (selectedNodeId) { document.getElementById('btnDeleteNodePanel').click(); }
+            else if (selectedEdgeId) { deleteSelectedEdge(); }
+            return;
+          }
+          if (k === '/') { e.preventDefault(); document.getElementById('searchBox').focus(); return; }
         });
 
         // Rename project
