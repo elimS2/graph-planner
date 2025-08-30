@@ -1,13 +1,29 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
+import os
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+import glob
+from pathlib import Path
+import logging
 
 from ...extensions import db
 from flask_login import login_required
-from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout, StatusChange, User
+from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout, StatusChange, User, NodeTranslation
 from ...schemas import ProjectSchema, NodeSchema, EdgeSchema, CommentSchema, TimeEntrySchema, CostEntrySchema, StatusChangeSchema
 from flask_login import current_user
+from ...repositories.translations import (
+    get_missing_node_titles,
+    get_stale_node_titles,
+    upsert_node_translations,
+    get_missing_comment_bodies,
+    get_stale_comment_bodies,
+    upsert_comment_translations,
+)
+from ...services.translation import translate_texts, TranslationError
+from ...services.async_jobs import enqueue_translation_job, get_job
 from ...services.nodes import recompute_importance_score, recompute_group_status
 from ...services.graph_analysis import longest_path_by_planned_hours
+from ...models import NodeTranslation, CommentTranslation
+from ...models import BackgroundJob
 
 
 bp = Blueprint("graph", __name__, url_prefix="/api/v1")
@@ -34,7 +50,11 @@ def _fallback_user_id() -> str:
 
 @bp.get("/health")
 def health():
-    return jsonify({"data": {"status": "ok"}})
+    try:
+        pid = os.getpid()
+    except Exception:
+        pid = None
+    return jsonify({"data": {"status": "ok", "pid": pid}})
 
 
 # Projects CRUD
@@ -80,6 +100,7 @@ def update_project(id: str):
 # Nodes
 @bp.get("/projects/<project_id>/nodes")
 def list_nodes(project_id: str):
+    lang = (request.args.get("lang") or "").lower().strip()
     items = db.session.query(Node).filter_by(project_id=project_id).all()
     payload = NodeSchema(many=True).dump(items)
     # attach layout if exists (best-effort)
@@ -89,6 +110,13 @@ def list_nodes(project_id: str):
             lay = layouts.get(n["id"]) if isinstance(n, dict) else None
             if lay:
                 n["position"] = {"x": lay.x, "y": lay.y}
+        # attach translations if requested
+        if lang:
+            tr = { (t.node_id): t for t in db.session.query(NodeTranslation).filter(NodeTranslation.lang==lang, NodeTranslation.node_id.in_([x["id"] for x in payload])).all() }
+            for n in payload:
+                t = tr.get(n["id"]) if isinstance(n, dict) else None
+                if t:
+                    n["title_translated"] = t.text
     except SQLAlchemyError:
         pass
     return jsonify({"data": payload})
@@ -113,6 +141,35 @@ def get_node(id: str):
     if not item:
         return jsonify({"errors": [{"status": 404, "title": "Not Found"}]}), 404
     return jsonify({"data": NodeSchema().dump(item)})
+
+
+@bp.get("/nodes/<node_id>/translation")
+def get_node_translation(node_id: str):
+    lang = (request.args.get("lang") or "en").lower()
+    t = db.session.get(NodeTranslation, (node_id, lang))
+    if not t:
+        return jsonify({"data": None})
+    return jsonify({"data": {"node_id": node_id, "lang": lang, "text": t.text, "provider": t.provider}})
+
+
+@bp.post("/nodes/<node_id>/translate")
+def translate_single_node(node_id: str):
+    payload = request.get_json(force=True) or {}
+    lang = (payload.get("lang") or "en").lower()
+    provider = (payload.get("provider")
+                or os.getenv("TRANSLATION_PROVIDER")
+                or ("deepl" if os.getenv("DEEPL_API_KEY") else "mock")).lower()
+    item = db.session.get(Node, node_id)
+    if not item:
+        return jsonify({"errors": [{"status": 404, "title": "Node not found"}]}), 404
+    try:
+        res = translate_texts([item.title or ""], lang, provider=provider)
+        if not res:
+            return jsonify({"errors": [{"status": 502, "title": "Provider returned no result"}]}), 502
+        upsert_node_translations([(node_id, lang, res[0].text, res[0].detected_source_lang)])
+        return jsonify({"data": {"node_id": node_id, "lang": lang, "text": res[0].text}})
+    except TranslationError as e:
+        return jsonify({"errors": [{"status": 502, "title": "Translation error", "detail": str(e)}]}), 502
 
 
 @bp.patch("/nodes/<id>")
@@ -211,8 +268,20 @@ def add_comment(node_id: str):
 
 @bp.get("/nodes/<node_id>/comments")
 def list_comments(node_id: str):
+    lang = (request.args.get("lang") or "").lower().strip()
     items = db.session.query(Comment).filter_by(node_id=node_id).order_by(Comment.created_at.desc()).all()
-    return jsonify({"data": CommentSchema(many=True).dump(items)})
+    payload = CommentSchema(many=True).dump(items)
+    if lang:
+        from ...models import CommentTranslation
+        try:
+            trs = {(t.comment_id): t for t in db.session.query(CommentTranslation).filter(CommentTranslation.lang==lang, CommentTranslation.comment_id.in_([c["id"] for c in payload])).all()}
+            for c in payload:
+                t = trs.get(c["id"]) if isinstance(c, dict) else None
+                if t:
+                    c["body_translated"] = t.text
+        except SQLAlchemyError:
+            pass
+    return jsonify({"data": payload})
 
 
 # Time entries
@@ -327,6 +396,251 @@ def project_metrics(project_id: str):
         }
     })
 
+
+@bp.get("/projects/<project_id>/nodes/lang-audit")
+def nodes_lang_audit(project_id: str):
+    items = db.session.query(Node).filter_by(project_id=project_id).all()
+    def guess_lang(text: str) -> str:
+        t = (text or "")
+        # Heuristic: Cyrillic => ru/uk (by presence of іїєґ), Latin letters => en
+        try:
+            if any('\u0400' <= ch <= '\u04FF' for ch in t):
+                if any(ch in t for ch in ("і", "ї", "є", "ґ", "І", "Ї", "Є", "Ґ")):
+                    return "uk"
+                return "ru"
+            if any(('A' <= ch <= 'Z') or ('a' <= ch <= 'z') for ch in t):
+                return "en"
+        except Exception:
+            pass
+        return "unknown"
+
+    out = []
+    counts = {"ru": 0, "uk": 0, "en": 0, "unknown": 0}
+    for n in items:
+        gl = guess_lang(n.title or "")
+        counts[gl] = counts.get(gl, 0) + 1
+        out.append({"id": n.id, "title": n.title, "guess": gl})
+    return jsonify({"data": {"total": len(items), "counts": counts, "items": out}})
+@bp.post("/projects/<project_id>/translate")
+def translate_project(project_id: str):
+    payload = request.get_json(force=True) or {}
+    lang = (payload.get("lang") or "en").lower()
+    include_nodes = True if payload.get("include_nodes") in (None, True) else False
+    include_comments = bool(payload.get("include_comments"))
+    include_stale = bool(payload.get("stale"))
+    force = bool(payload.get("force"))
+    dry_run = bool(payload.get("dry_run"))
+    provider = (payload.get("provider")
+                or os.getenv("TRANSLATION_PROVIDER")
+                or ("deepl" if os.getenv("DEEPL_API_KEY") else "mock")).lower()
+
+    translated = 0
+    skipped = 0
+
+    try:
+        todo_nodes: list[tuple[str, str]] = []
+        todo_comments: list[tuple[str, str]] = []
+        if include_nodes:
+            if force:
+                todo_nodes = [(nid, title or "") for nid, title in db.session.query(Node.id, Node.title).filter(Node.project_id == project_id).all()]
+            else:
+                missing = get_missing_node_titles(project_id, lang)
+                stale = get_stale_node_titles(project_id, lang) if include_stale else []
+                todo_nodes = list({(nid, t) for (nid, t) in missing + stale})
+            if dry_run:
+                pass
+            elif todo_nodes:
+                texts = [t for (_, t) in todo_nodes]
+                res = translate_texts(texts, lang, provider=provider)
+                records = []
+                for (nid, _), tr in zip(todo_nodes, res):
+                    records.append((nid, lang, tr.text, tr.detected_source_lang))
+                upsert_node_translations(records)
+                translated += len(records)
+            else:
+                skipped += 1
+        if include_comments:
+            if force:
+                todo_comments = [
+                    (cid, body or "")
+                    for cid, body in (
+                        db.session.query(Comment.id, Comment.body)
+                        .join(Node, Node.id == Comment.node_id)
+                        .filter(Node.project_id == project_id)
+                        .all()
+                    )
+                ]
+            else:
+                missing_c = get_missing_comment_bodies(project_id, lang)
+                stale_c = get_stale_comment_bodies(project_id, lang) if include_stale else []
+                todo_comments = list({(cid, b) for (cid, b) in missing_c + stale_c})
+            if dry_run:
+                pass
+            elif todo_comments:
+                texts = [b for (_, b) in todo_comments]
+                res = translate_texts(texts, lang, provider=provider)
+                records = []
+                for (cid, _), tr in zip(todo_comments, res):
+                    records.append((cid, lang, tr.text, tr.detected_source_lang))
+                upsert_comment_translations(records)
+                translated += len(records)
+    except TranslationError as e:
+        return jsonify({"errors": [{"status": 502, "title": "Translation provider error", "detail": str(e)}]}), 502
+
+    if dry_run:
+        return jsonify({
+            "data": {
+                "dry_run": True,
+                "todo_nodes": len(todo_nodes),
+                "todo_comments": len(todo_comments),
+                "total": len(todo_nodes) + len(todo_comments),
+            }
+        })
+    return jsonify({"data": {"translated": translated, "skipped": skipped}})
+
+
+@bp.post("/projects/<project_id>/translate/async")
+def translate_project_async(project_id: str):
+    payload = request.get_json(force=True) or {}
+    lang = (payload.get("lang") or "en").lower()
+    include_nodes = True if payload.get("include_nodes") in (None, True) else False
+    include_comments = bool(payload.get("include_comments"))
+    include_stale = bool(payload.get("stale"))
+    provider = (payload.get("provider")
+                or os.getenv("TRANSLATION_PROVIDER")
+                or ("deepl" if os.getenv("DEEPL_API_KEY") else "mock")).lower()
+    force = bool(payload.get("force"))
+    # Synchronous fast-path: if nothing requested, mark job finished immediately
+    if not include_nodes and not include_comments:
+        job_id = enqueue_translation_job(current_app._get_current_object(), project_id, lang, include_nodes, include_comments, include_stale, provider, force)  # type: ignore[arg-type]
+        try:
+            jb = db.session.get(BackgroundJob, job_id)
+            if jb:
+                jb.status = "running"
+                jb.total = 0
+                jb.done = 0
+                jb.translated = 0
+                db.session.commit()
+                logging.info(f"[translate job {job_id}] running (api fast-path)")
+                jb.status = "finished"
+                jb.skipped = 2
+                db.session.commit()
+                logging.info(f"[translate job {job_id}] finished (api fast-path)")
+        except Exception:
+            db.session.rollback()
+        return jsonify({"data": {"job_id": job_id}}), 202
+
+    job_id = enqueue_translation_job(current_app._get_current_object(), project_id, lang, include_nodes, include_comments, include_stale, provider, force)  # type: ignore[arg-type]
+    try:
+        logging.info(f"[translate job {job_id}] enqueued via API project={project_id} lang={lang} nodes={include_nodes} comments={include_comments} stale={include_stale} force={force} provider={provider}")
+    except Exception:
+        pass
+    return jsonify({"data": {"job_id": job_id}}), 202
+
+
+@bp.get("/jobs/<job_id>")
+def get_job_status(job_id: str):
+    j = get_job(job_id)
+    if not j:
+        return jsonify({"errors": [{"status": 404, "title": "Job not found"}]}), 404
+    return jsonify({"data": j})
+
+
+@bp.get("/projects/<project_id>/translation/stats")
+def translation_stats(project_id: str):
+    lang = (request.args.get("lang") or "en").lower()
+    try:
+        mn = len(get_missing_node_titles(project_id, lang))
+        sn = len(get_stale_node_titles(project_id, lang))
+        mc = len(get_missing_comment_bodies(project_id, lang))
+        sc = len(get_stale_comment_bodies(project_id, lang))
+        # totals across all items in board
+        total_nodes = db.session.query(db.func.count(Node.id)).filter(Node.project_id == project_id).scalar() or 0
+        total_comments = (
+            db.session.query(db.func.count(Comment.id))
+            .join(Node, Node.id == Comment.node_id)
+            .filter(Node.project_id == project_id)
+            .scalar() or 0
+        )
+        return jsonify({"data": {
+            "missing_nodes": mn,
+            "stale_nodes": sn,
+            "missing_comments": mc,
+            "stale_comments": sc,
+            "total_nodes": int(total_nodes),
+            "total_comments": int(total_comments),
+        }})
+    except SQLAlchemyError:
+        return jsonify({"errors": [{"status": 500, "title": "Stats unavailable"}]}), 500
+
+
+@bp.get("/logs/latest")
+def get_latest_log():
+    try:
+        # Read LOGS_DIR from .env (project root)
+        root = Path(current_app.root_path).parent
+        env_path = root / ".env"
+        logs_dir = None
+        if env_path.exists():
+            try:
+                for raw in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        if k.strip() == "LOGS_DIR":
+                            logs_dir = v.strip()
+                            break
+            except Exception:
+                pass
+        logs_dir = logs_dir or "logs"
+        log_dir_path = Path(logs_dir) if Path(logs_dir).is_absolute() else (root / logs_dir)
+        files = sorted(log_dir_path.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not files:
+            return jsonify({"data": {"file": None, "lines": []}})
+        latest = files[0]
+        with latest.open("r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()[-200:]
+        return jsonify({"data": {"file": latest.name, "lines": [ln.rstrip("\n") for ln in lines]}})
+    except Exception as e:
+        return jsonify({"errors": [{"status": 500, "title": "Log read error", "detail": str(e)}]}), 500
+
+
+@bp.get("/logs/jobs/<job_id>")
+def get_job_log(job_id: str):
+    try:
+        root = Path(current_app.root_path).parent
+        env_path = root / ".env"
+        logs_dir = None
+        if env_path.exists():
+            try:
+                for raw in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        if k.strip() == "LOGS_DIR":
+                            logs_dir = v.strip()
+                            break
+            except Exception:
+                pass
+        logs_dir = logs_dir or "logs"
+        log_dir_path = Path(logs_dir) if Path(logs_dir).is_absolute() else (root / logs_dir)
+        files = sorted(log_dir_path.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not files:
+            return jsonify({"data": {"file": None, "lines": []}})
+        latest = files[0]
+        matched: list[str] = []
+        with latest.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if f"[translate job {job_id}]" in line:
+                    matched.append(line.rstrip("\n"))
+        matched = matched[-200:]
+        return jsonify({"data": {"file": latest.name, "lines": matched}})
+    except Exception as e:
+        return jsonify({"errors": [{"status": 500, "title": "Log read error", "detail": str(e)}]}), 500
 
 @bp.post("/projects/<project_id>/groups")
 @login_required

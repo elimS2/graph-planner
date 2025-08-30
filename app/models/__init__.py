@@ -18,6 +18,8 @@ def generate_uuid() -> str:
 
 class TimestampMixin:
     created_at: Mapped[str] = mapped_column(db.String, default=lambda: datetime.utcnow().isoformat() + "Z", nullable=False)
+    # Optional update timestamp for staleness checks
+    updated_at: Mapped[str] = mapped_column(db.String, default=lambda: datetime.utcnow().isoformat() + "Z", onupdate=lambda: datetime.utcnow().isoformat() + "Z", nullable=False)
 
 
 # Association table for many-to-many Node <-> Tag
@@ -98,6 +100,8 @@ class Node(db.Model, TimestampMixin):
 
     status_changes = relationship("StatusChange", back_populates="node", cascade="all, delete-orphan")
 
+    translations = relationship("NodeTranslation", back_populates="node", cascade="all, delete-orphan")
+
 
 class Edge(db.Model, TimestampMixin):
     __tablename__ = "edge"
@@ -156,6 +160,7 @@ class Comment(db.Model, TimestampMixin):
 
     node = relationship("Node", back_populates="comments")
     user = relationship("User", back_populates="comments")
+    translations = relationship("CommentTranslation", back_populates="comment", cascade="all, delete-orphan")
 
 
 class Tag(db.Model):
@@ -186,5 +191,48 @@ class StatusChange(db.Model, TimestampMixin):
 
     node = relationship("Node", back_populates="status_changes")
 
+
+class NodeTranslation(db.Model):
+    __tablename__ = "node_translation"
+
+    node_id: Mapped[str] = mapped_column(db.String, ForeignKey("node.id", ondelete="CASCADE"), primary_key=True)
+    lang: Mapped[str] = mapped_column(db.String, primary_key=True)
+    text: Mapped[str] = mapped_column(db.Text, nullable=False)
+    provider: Mapped[str] = mapped_column(db.String, nullable=False)
+    detected_source_lang: Mapped[str | None] = mapped_column(db.String, nullable=True)
+    source_hash: Mapped[str | None] = mapped_column(db.String, nullable=True)
+    created_at: Mapped[str] = mapped_column(db.String, default=lambda: datetime.utcnow().isoformat() + "Z", nullable=False)
+
+    node = relationship("Node", back_populates="translations")
+
+
+class CommentTranslation(db.Model):
+    __tablename__ = "comment_translation"
+
+    comment_id: Mapped[str] = mapped_column(db.String, ForeignKey("comment.id", ondelete="CASCADE"), primary_key=True)
+    lang: Mapped[str] = mapped_column(db.String, primary_key=True)
+    text: Mapped[str] = mapped_column(db.Text, nullable=False)
+    provider: Mapped[str] = mapped_column(db.String, nullable=False)
+    detected_source_lang: Mapped[str | None] = mapped_column(db.String, nullable=True)
+    source_hash: Mapped[str | None] = mapped_column(db.String, nullable=True)
+    created_at: Mapped[str] = mapped_column(db.String, default=lambda: datetime.utcnow().isoformat() + "Z", nullable=False)
+
+    comment = relationship("Comment", back_populates="translations")
+
+
+
+class BackgroundJob(db.Model, TimestampMixin):
+    __tablename__ = "background_job"
+
+    id: Mapped[str] = mapped_column(db.String, primary_key=True, default=generate_uuid)
+    project_id: Mapped[Optional[str]] = mapped_column(db.String, ForeignKey("project.id", ondelete="SET NULL"), nullable=True)
+    type: Mapped[str] = mapped_column(db.String, nullable=False, default="translate")
+    status: Mapped[str] = mapped_column(db.String, nullable=False, default="queued")  # queued|running|finished|failed
+    total: Mapped[int] = mapped_column(db.Integer, nullable=False, default=0)
+    done: Mapped[int] = mapped_column(db.Integer, nullable=False, default=0)
+    translated: Mapped[int] = mapped_column(db.Integer, nullable=False, default=0)
+    skipped: Mapped[int] = mapped_column(db.Integer, nullable=False, default=0)
+    error: Mapped[Optional[str]] = mapped_column(db.Text, nullable=True)
+    meta_json: Mapped[Optional[str]] = mapped_column(db.Text, nullable=True)
 
 

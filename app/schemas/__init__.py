@@ -26,6 +26,7 @@ class NodeSchema(Schema):
     parent_id = fields.String(allow_none=True)
     is_group = fields.Boolean()
     created_at = fields.String(dump_only=True)
+    updated_at = fields.String(dump_only=True)
     priority = fields.String()
 
 
@@ -45,6 +46,7 @@ class CommentSchema(Schema):
     user_id = fields.String(required=True)
     body = fields.String(required=True)
     created_at = fields.String(dump_only=True)
+    updated_at = fields.String(dump_only=True)
 
 
 class TimeEntrySchema(Schema):

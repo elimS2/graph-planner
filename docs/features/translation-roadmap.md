@@ -1,8 +1,8 @@
 ## Graph Planner — Translation Feature Roadmap (Node Title Localization)
 
-Status: Draft
+Status: In Progress
 Owner: Team
-Last Updated: 2025-08-30T11:11:54Z
+Last Updated: 2025-08-30T18:19:37Z
 
 ---
 
@@ -39,7 +39,7 @@ Out of Scope (for this iteration):
 
 ### 3) Architecture Decisions
 
-- Provider: DeepL API (`deepl`), because quality > cost. Keep interface open for Google/Azure.
+- Provider: DeepL API (`deepl`) first. Add `libre` provider (LibreTranslate) for no-card testing; keep `mock` for dev only. Interface open for Google/Azure in future.
 - Translation cache model: normalized table `NodeTranslation(node_id, lang, text, provider, detected_source_lang, created_at)`.
 - API keys in `.env` (e.g., `DEEPL_API_KEY`). Optional `TRANSLATION_PROVIDER=deepl|google|azure|libre`.
 - Server-side batching: translate in batches (<= 50 items) to respect rate limits; exponential backoff.
@@ -95,9 +95,12 @@ Errors: unified JSON errors, 4xx for user errors, 5xx for provider/network.
 - Batching, provider selection, basic retry/backoff
 - Provider adapters:
   - `DeepLProvider` (HTTP to api.deepl.com)
+  - `LibreProvider` (LibreTranslate REST API)
+  - `MockProvider` (local, prefixes text for testing)
+  - `MyMemoryProvider` (public REST; heuristic src; guarded)
+  - `GeminiProvider` (LLM translation via Vertex/Generative API) [planned]
   - `GoogleProvider` (future)
   - `AzureProvider` (future)
-  - `LibreProvider` (optional self-hosted)
 
 `app/repositories/translations.py`:
 - CRUD for `NodeTranslation`
@@ -117,10 +120,14 @@ Errors: unified JSON errors, 4xx for user errors, 5xx for provider/network.
 ### 8) Configuration
 
 `.env`:
-- `TRANSLATION_PROVIDER=deepl`
-- `DEEPL_API_KEY=...`
+- `TRANSLATION_PROVIDER=deepl|libre|mymemory|gemini|mock`
+- `DEEPL_API_KEY=...` (deepl)
+- `LT_API_URL` and `LT_API_KEY` (libre)
+- `GEMINI_API_KEY` (Generative Language API) or Vertex SA creds
 - Timeouts: `TRANSLATION_TIMEOUT_MS=60000`
 - Rate: `TRANSLATION_BATCH_SIZE=50`
+- Async workers: `ASYNC_WORKERS=2` (MVP ThreadPool)
+- For local testing without keys set `TRANSLATION_PROVIDER=mock`
 
 `requirements.txt`:
 - `deepl==1.*` (official client) or `requests`-based minimal client
@@ -184,19 +191,19 @@ UI (manual + Playwright later):
    - Create `NodeTranslation` model and migration / dev-upgrader
    - Implement repo functions `get_cached`, `upsert_many`
 
-2. Provider layer [pending]
+2. Provider layer [completed]
    - Add `app/services/translation.py` with DeepL client (env key)
    - Batch translate with retry/backoff
 
-3. API [pending]
+3. API [completed]
    - POST `/projects/{id}/translate` (server-only translate, cache)
    - GET `/nodes/{id}/translations`
    - Optional: extend `GET /projects/{id}/nodes?lang=en` to include `title_translated`
 
-4. UI [pending]
+4. UI [completed]
    - Toolbar toggle `Show English`
-   - When on: fetch nodes with translations (or fetch translations and map client-side)
-   - Loading/error toasts; re-render labels
+   - When on: fetch nodes with translations via `?lang=en` (ensuring cache via POST /translate)
+   - Persist choice in localStorage; re-render labels
 
 5. Tests [pending]
    - Unit for services/repo; integration for API; manual flow
@@ -226,5 +233,121 @@ UI (manual + Playwright later):
 ### 17) Change Log (append-only)
 
 - 2025-08-30T11:11:54Z — Draft roadmap created with DeepL-first approach; caching strategy; UI toggle; API outline; manual tests.
+
+---
+
+### 18) Extended Requirements: Triggers, Staleness, Comments, and Batch Maintenance
+
+This section captures additional design requirements to ensure high quality and maintainable translations across nodes and comments.
+
+1) What initiates translation?
+- On-demand (manual): a button per project to translate missing/outdated items
+- Automatic hooks: after node/comment create or update, enqueue translation refresh for already-used languages
+- UI view toggle (e.g., English): if cache missing → trigger background job (or sync MVP) then refresh view
+
+2) Coverage
+- Existing nodes: translate all titles into selected languages (e.g., `en`, `uk`) [completed]
+- Existing comments: translate all comment bodies as well [completed]
+
+3) Data model enhancements
+- `node_translation(node_id, lang, text, provider, detected_source_lang, source_hash, created_at)`
+- `comment_translation(comment_id, lang, text, provider, detected_source_lang, source_hash, created_at)`
+- Ensure source records have `updated_at` (or `content_hash`) to detect staleness
+  - If missing in current schema: add `updated_at` to `node` and `comment`
+  - Alternatively introduce an immutable `content_hash` for quick comparison
+
+4) Staleness detection
+- A translation is stale if:
+  - `source.updated_at > translation.created_at`, or
+  - `hash(title_or_body) != translation.source_hash`
+- Queries:
+  - Find all nodes/comments with missing translation for a language
+  - Find all nodes/comments with stale translation for a language
+
+5) Events (optional but recommended)
+- Table `content_event(id, entity_type, entity_id, event_type, created_at, payload_json)`
+  - Examples: `node.title_updated`, `comment.body_updated`, `translation.updated`
+  - Benefits: audit/history, ability to rebuild translation backlog
+
+6) APIs & CLI
+- GET `/projects/{id}/translation/stats?lang=en` → `{missing_nodes, stale_nodes, missing_comments, stale_comments}`
+- POST `/projects/{id}/translate` `{ lang, include: ["nodes","comments"], stale: true }`
+  - Translates missing; if `stale=true`, also refreshes stale
+- CLI `flask translate-project --project <id> --lang en --stale` for batch maintenance
+ - Node-level:
+   - GET `/nodes/{id}/translation?lang=en` → `{text}|null` [completed]
+   - POST `/nodes/{id}/translate` `{lang, provider?}` → caches translation and returns `{text}` [completed]
+
+7) Background execution
+7) Background execution [updated]
+- MVP: lightweight in-process ThreadPool executor with job registry [completed]
+- Persistent status: DB model `BackgroundJob` with API status backed by DB [completed]
+- API:
+  - POST `/projects/{id}/translate/async` → returns `{ job_id }` [completed]
+  - GET `/jobs/{job_id}` → returns `{status, total, done, translated, skipped, error}` [completed]
+- Next: replace with robust queue (RQ/Celery) [pending]
+
+8) UI [updated]
+- Toggle: `Show English` [completed]
+- Diagnostics button: shows missing/stale counts [completed]
+- Async translate button: starts job and polls status; refreshes graph on finish [completed]
+
+9) Best practices
+- Hash-based staleness check avoids time drift
+- Batching limits; exponential backoff on provider errors
+- Provider-agnostic service + per-provider adapters
+ - LLM pass: optional “polish” step for style/context (Gemini) after NMT
+
+---
+
+### 19) Additional Prompt (translated from Russian as-is)
+
+Discuss how we will translate. What will initiate the translation? We already have many nodes created; we need to translate their titles and comments. Most likely, we need a separate translation table convenient for queries. For example, request all titles that do not have a translation into Ukrainian or English. Then iterate through them and store the translation.
+
+When creating or editing a node, automatically update translations for the languages that already exist in translations.
+
+Same for comments.
+
+We also need a script or a button that launches a database sweep to find missing or outdated translations. We can consider a translation outdated if it was created before the title or comment was edited.
+
+If the database does not store the time when the title or comment was edited, then we need to create these fields.
+
+Alternatively, make a separate table that stores events, including editing the title of a particular node, or editing a particular comment; updating the translation of a particular comment or title. Then we have a history for rollback, for example to a previous version, and we can understand by query what needs to be translated, what contains an outdated translation.
+
+Add this to our translation roadmap as well. It is important that you translate this prompt and add it to the roadmap as it is so that the context of the idea is not lost. And think about how to implement it.
+
+Follow principles: SOLID, DRY, KISS, Separation of Concerns, Single Level of Abstraction, Clean Code Practices. Follow UI/UX: User-Friendly, Intuitive, Consistency, Accessibility, Feedback, Simplicity, Aesthetic & Modern, Performance, Responsive Design. Use Best Practices.
+
+---
+
+### 20) Updated Checklist (incremental)
+
+1. Models [completed]
+   - `NodeTranslation`, `CommentTranslation` with `source_hash`
+   - `updated_at` added to `node` and `comment`
+   - Optional `content_event` for audit/history [pending]
+
+2. Repositories [pending]
+   - Fetch missing/stale for (nodes, comments, lang)
+   - Upsert many translations
+
+3. Services [updated]
+   - DeepL adapter; batch translate [completed]
+   - Libre/MyMemory adapters with guards [completed]
+   - Gemini adapter (LLM): prompt, batching, cost-safety [planned]
+   - Hooks: on create/update node/comment → enqueue refresh for known langs
+
+4. API/CLI [updated]
+   - Stats endpoint [completed]
+   - Translate endpoint [completed]
+   - CLI command `flask translate-project --project <id> --lang en --stale` [completed]
+
+5. UI [completed]
+   - Toggle implemented for nodes/comments (display); diagnostics/panel [pending]
+   - Diagnostics button added: GET `/projects/{id}/translation/stats`
+
+6. Tests [pending]
+   - Staleness logic; hooks; endpoint behavior
+
 
 

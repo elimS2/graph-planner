@@ -42,6 +42,12 @@
             <label class="px-3 py-1 bg-slate-700 text-white rounded cursor-pointer">Import JSON<input id="importInput" type="file" accept="application/json" class="hidden" /></label>
             <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
+            <select id="langSelect" class="ml-2 border rounded px-2 py-1">
+              <option value="">Original</option>
+              <option value="en">English</option>
+            </select>
+            <button id="btnTrStats" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Translation Stats</button>
+            <button id="btnTrRun" class="px-3 py-1 bg-indigo-600 text-white rounded">Run Translate</button>
             <button id="btnResetView" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Reset View</button>
             <button id="btnToggleSidebar" class="ml-auto px-3 py-1 bg-slate-200 text-slate-800 rounded">Toggle Sidebar</button>
           </div>
@@ -59,6 +65,13 @@
           <div>
             <label class="block text-sm text-slate-600">Selected Node Title</label>
             <div id="selNodeTitle" contenteditable="true" spellcheck="false" class="text-sm text-slate-800 truncate border rounded px-2 py-1 focus:outline-none focus:ring focus:ring-slate-300">—</div>
+          </div>
+          <div>
+            <label class="block text-sm text-slate-600">Translated Title (preview)</label>
+            <div class="flex gap-2 items-center">
+              <input id="selNodeTitleTranslated" class="flex-1 text-sm border rounded px-2 py-1" placeholder="—" readonly />
+              <button id="btnRefreshTranslation" class="px-2 py-1 text-xs bg-slate-200 rounded">Refresh</button>
+            </div>
           </div>
           <div>
             <label class="block text-sm text-slate-600">Selected Node ID</label>
@@ -194,9 +207,10 @@
         refresh();
       }
 
-      async function fetchGraph() {
+      async function fetchGraph(lang="") {
+        const q = lang ? `?lang=${encodeURIComponent(lang)}` : "";
         const [nodesRes, edgesRes] = await Promise.all([
-          fetch(`/api/v1/projects/${projectId}/nodes`),
+          fetch(`/api/v1/projects/${projectId}/nodes${q}`),
           fetch(`/api/v1/projects/${projectId}/edges`),
         ]);
         const nodesJson = await nodesRes.json();
@@ -217,7 +231,7 @@
         const nodes = graph.nodes.map(n => ({
           data: {
             id: String(n.id),
-            label: n.title,
+            label: (n.title_translated || n.title),
             score: n.importance_score,
             status: n.status,
             is_group: !!n.is_group,
@@ -283,7 +297,8 @@
 
       (async function init() {
         wireAuthHeader();
-        let graph = await fetchGraph();
+        const savedLang = localStorage.getItem('displayLang') || '';
+        let graph = await fetchGraph(savedLang);
         const allHavePositions = Array.isArray(graph.nodes) && graph.nodes.length > 0 && graph.nodes.every(n => n.position && typeof n.position.x === 'number' && typeof n.position.y === 'number');
         const cy = cytoscape({
           container: document.getElementById('cy'),
@@ -386,8 +401,10 @@
         let selectedNodeId = null;
         let selectedEdgeId = null;
         async function refreshLists(nodeId) {
+          const lang = (document.getElementById('langSelect')?.value || '');
+          const q = lang ? `?lang=${encodeURIComponent(lang)}` : '';
           const [c, t, k] = await Promise.all([
-            fetch(`/api/v1/nodes/${nodeId}/comments`).then(r=>r.json()),
+            fetch(`/api/v1/nodes/${nodeId}/comments${q}`).then(r=>r.json()),
             fetch(`/api/v1/nodes/${nodeId}/time-entries`).then(r=>r.json()),
             fetch(`/api/v1/nodes/${nodeId}/cost-entries`).then(r=>r.json()),
           ]);
@@ -395,7 +412,7 @@
           commentsList.innerHTML = '';
           c.data.forEach(x => {
             const li = document.createElement('li');
-            const body = document.createElement('span'); body.textContent = x.body;
+            const body = document.createElement('span'); body.textContent = (x.body_translated || x.body);
             const time = document.createElement('span'); time.className = 'ml-2 text-xs text-slate-500'; time.textContent = formatDate(x.created_at);
             li.appendChild(body); li.appendChild(time);
             commentsList.appendChild(li);
@@ -436,6 +453,16 @@
           selEl.textContent = selectedNodeId;
           const titleEl = document.getElementById('selNodeTitle');
           if (titleEl) titleEl.textContent = String(evt.target.data('label') || '—');
+          try {
+            const lang = (document.getElementById('langSelect')?.value || '');
+            const out = document.getElementById('selNodeTitleTranslated');
+            if (!lang) { if(out) out.value=''; }
+            else {
+              const r = await fetch(`/api/v1/nodes/${selectedNodeId}/translation?lang=${encodeURIComponent(lang)}`).then(x=>x.json());
+              const t = r && r.data && r.data.text;
+              if (out) out.value = t || '';
+            }
+          } catch {}
           const createdEl = document.getElementById('createdAt');
           if (createdEl) createdEl.textContent = formatDate(evt.target.data('created_at'));
           const delBtn = document.getElementById('btnDeleteNodePanel');
@@ -849,6 +876,233 @@
 
         // Fit
         document.getElementById('btnFit').addEventListener('click', () => cy.fit());
+
+        // Language toggle
+        const langSel = document.getElementById('langSelect');
+        langSel.value = savedLang;
+        async function ensureTranslations(lang){
+          if (!lang) return;
+          try { await fetch(`/api/v1/projects/${projectId}/translate`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lang, include_nodes: true, stale: false }) }); } catch {}
+        }
+        langSel.addEventListener('change', async (e)=>{
+          const lang = e.target.value;
+          localStorage.setItem('displayLang', lang);
+          if (lang) await ensureTranslations(lang);
+          graph = await fetchGraph(lang);
+          cy.elements().remove();
+          cy.add(toElements(graph));
+          cy.layout({ name: 'preset' }).run();
+          cy.fit();
+        });
+
+        document.getElementById('btnTrStats').addEventListener('click', async ()=>{
+          const lang = (document.getElementById('langSelect')?.value || 'en');
+          try {
+            const s = await fetch(`/api/v1/projects/${projectId}/translation/stats?lang=${encodeURIComponent(lang)}`).then(r=>r.json());
+            const d = s.data || {};
+            alert(`Translation stats (${lang}):\nMissing nodes: ${d.missing_nodes}\nStale nodes: ${d.stale_nodes}\nMissing comments: ${d.missing_comments}\nStale comments: ${d.stale_comments}`);
+          } catch { alert('Failed to fetch stats'); }
+        });
+
+        document.getElementById('btnTrRun').addEventListener('click', async ()=>{
+          const lang = (document.getElementById('langSelect')?.value || 'en');
+          const btn = document.getElementById('btnTrRun');
+          const oldText = btn.textContent;
+          let preflightTotalAll = 0;
+          // Ask user for mode: OK => force overwrite all; Cancel => only missing/stale
+          const forceMode = window.confirm('Force mode?\nOK = overwrite ALL existing translations (force=true)\nCancel = only missing/stale (force=false)');
+          try {
+            btn.disabled = true; btn.textContent = 'Translating…';
+            // Preflight: if nothing to translate, stop early and re-enable
+            try {
+              const s = await fetch(`/api/v1/projects/${projectId}/translation/stats?lang=${encodeURIComponent(lang)}`).then(r=>r.json());
+              const d = s?.data || {};
+              const totalAll = (d.total_nodes||0) + (d.total_comments||0);
+              preflightTotalAll = totalAll;
+              btn.textContent = `Translating… 0/${totalAll}`;
+              const totalLeft = (d.missing_nodes||0)+(d.stale_nodes||0)+(d.missing_comments||0)+(d.stale_comments||0);
+              if (!totalLeft) {
+                btn.disabled = false; btn.textContent = oldText;
+                alert('Nothing to translate');
+                return;
+              }
+            } catch {}
+            // Sync translate (temporary fallback while async queue is under maintenance)
+            const syncResp = await fetch(`/api/v1/projects/${projectId}/translate`, {
+              method: 'POST', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ lang, include_nodes: true, include_comments: true, stale: true, provider: 'gemini', force: !!forceMode })
+            });
+            if (!syncResp.ok) {
+              let detail = '';
+              try {
+                const t = await syncResp.text();
+                detail = (t || '').slice(0, 2000);
+              } catch {}
+              // Show copyable error panel
+              (async function(){
+                let panel = document.getElementById('copyableErrorPanel');
+                if (!panel){
+                  panel = document.createElement('div');
+                  panel.id = 'copyableErrorPanel';
+                  panel.style.position = 'fixed';
+                  panel.style.left = '50%';
+                  panel.style.top = '50%';
+                  panel.style.transform = 'translate(-50%, -50%)';
+                  panel.style.zIndex = '9999';
+                  panel.style.width = '520px';
+                  panel.style.maxWidth = '92vw';
+                  panel.style.background = '#111827';
+                  panel.style.color = '#e5e7eb';
+                  panel.style.border = '1px solid #374151';
+                  panel.style.borderRadius = '8px';
+                  panel.style.boxShadow = '0 10px 20px rgba(0,0,0,0.3)';
+                  panel.style.padding = '12px';
+                  panel.style.maxHeight = '80vh';
+                  panel.style.overflow = 'auto';
+
+                  const title = document.createElement('div');
+                  title.textContent = 'Error details';
+                  title.style.fontWeight = '600';
+                  title.style.marginBottom = '8px';
+                  panel.appendChild(title);
+
+                  const ta = document.createElement('textarea');
+                  ta.id = 'copyableErrorText';
+                  ta.readOnly = true;
+                  ta.style.width = '100%';
+                  ta.style.height = '160px';
+                  ta.style.background = '#0b1220';
+                  ta.style.color = '#e5e7eb';
+                  ta.style.border = '1px solid #374151';
+                  ta.style.borderRadius = '6px';
+                  ta.style.padding = '8px';
+                  ta.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+                  panel.appendChild(ta);
+
+                  const row = document.createElement('div');
+                  row.style.display = 'flex';
+                  row.style.gap = '8px';
+                  row.style.marginTop = '8px';
+
+                  const btnCopy = document.createElement('button');
+                  btnCopy.textContent = 'Copy';
+                  btnCopy.className = 'px-3 py-1 bg-slate-200 text-slate-800 rounded';
+                  btnCopy.addEventListener('click', ()=>{ ta.select(); try { document.execCommand('copy'); } catch {} });
+                  row.appendChild(btnCopy);
+
+                  const btnClose = document.createElement('button');
+                  btnClose.textContent = 'Close';
+                  btnClose.className = 'px-3 py-1 bg-slate-200 text-slate-800 rounded';
+                  btnClose.addEventListener('click', ()=>{ panel.style.display = 'none'; });
+                  row.appendChild(btnClose);
+
+                  panel.appendChild(row);
+                  document.body.appendChild(panel);
+                }
+                // fetch pid
+                let pid = '';
+                try { const h = await fetch('/api/v1/health').then(r=>r.json()); pid = (h && h.data && h.data.pid) ? String(h.data.pid) : ''; } catch {}
+                const taEl = document.getElementById('copyableErrorText');
+                if (taEl){ taEl.value = `sync failed (${syncResp.status}) pid=${pid}\n${detail}`; taEl.select(); }
+                panel.style.display = '';
+              })();
+              btn.disabled = false; btn.textContent = oldText;
+              return;
+            }
+            const sync = await syncResp.json();
+            const translated = (sync && sync.data && sync.data.translated) || 0;
+            btn.disabled = false; btn.textContent = oldText;
+            alert(`Done. Translated: ${translated}`);
+            const currentLang = (document.getElementById('langSelect')?.value || '');
+            graph = await fetchGraph(currentLang);
+            cy.elements().remove();
+            cy.add(toElements(graph));
+            cy.layout({ name: 'preset' }).run();
+            cy.fit();
+          } catch (e) {
+            btn.disabled = false; btn.textContent = oldText;
+            const msg = (e && e.message) ? e.message : 'Translation failed';
+            (async function(){
+              let panel = document.getElementById('copyableErrorPanel');
+              if (!panel){
+                panel = document.createElement('div');
+                panel.id = 'copyableErrorPanel';
+                panel.style.position = 'fixed';
+                panel.style.left = '50%';
+                panel.style.top = '50%';
+                panel.style.transform = 'translate(-50%, -50%)';
+                panel.style.zIndex = '9999';
+                panel.style.width = '520px';
+                panel.style.maxWidth = '92vw';
+                panel.style.background = '#111827';
+                panel.style.color = '#e5e7eb';
+                panel.style.border = '1px solid #374151';
+                panel.style.borderRadius = '8px';
+                panel.style.boxShadow = '0 10px 20px rgba(0,0,0,0.3)';
+                panel.style.padding = '12px';
+                panel.style.maxHeight = '80vh';
+                panel.style.overflow = 'auto';
+                const title = document.createElement('div');
+                title.textContent = 'Error details';
+                title.style.fontWeight = '600';
+                title.style.marginBottom = '8px';
+                panel.appendChild(title);
+                const ta = document.createElement('textarea');
+                ta.id = 'copyableErrorText';
+                ta.readOnly = true;
+                ta.style.width = '100%';
+                ta.style.height = '160px';
+                ta.style.background = '#0b1220';
+                ta.style.color = '#e5e7eb';
+                ta.style.border = '1px solid #374151';
+                ta.style.borderRadius = '6px';
+                ta.style.padding = '8px';
+                ta.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+                panel.appendChild(ta);
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.gap = '8px';
+                row.style.marginTop = '8px';
+                const btnCopy = document.createElement('button');
+                btnCopy.textContent = 'Copy';
+                btnCopy.className = 'px-3 py-1 bg-slate-200 text-slate-800 rounded';
+                btnCopy.addEventListener('click', ()=>{ ta.select(); try { document.execCommand('copy'); } catch {} });
+                row.appendChild(btnCopy);
+                const btnClose = document.createElement('button');
+                btnClose.textContent = 'Close';
+                btnClose.className = 'px-3 py-1 bg-slate-200 text-slate-800 rounded';
+                btnClose.addEventListener('click', ()=>{ panel.style.display = 'none'; });
+                row.appendChild(btnClose);
+                panel.appendChild(row);
+                document.body.appendChild(panel);
+              }
+              let pid = '';
+              try { const h = await fetch('/api/v1/health').then(r=>r.json()); pid = (h && h.data && h.data.pid) ? String(h.data.pid) : ''; } catch {}
+              const taEl = document.getElementById('copyableErrorText');
+              if (taEl){ taEl.value = (pid ? `pid=${pid}\n` : '') + String(msg||''); taEl.select(); }
+              panel.style.display = '';
+            })();
+          } finally {
+            // Safety unlock after 15s in any case
+            setTimeout(()=>{ if(btn.disabled){ btn.disabled=false; btn.textContent=oldText; } }, 15000);
+          }
+        });
+
+        document.getElementById('btnRefreshTranslation').addEventListener('click', async ()=>{
+          if (!selectedNodeId) { alert('Select a node'); return; }
+          const lang = (document.getElementById('langSelect')?.value || 'en');
+          try {
+            const res = await fetch(`/api/v1/nodes/${selectedNodeId}/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, provider: 'mymemory' }) }).then(r=>r.json());
+            const out = document.getElementById('selNodeTitleTranslated');
+            if (out) out.value = (res && res.data && res.data.text) || '';
+            // also refresh label for this node in graph if language currently selected
+            const currentLang = (document.getElementById('langSelect')?.value || '');
+            if (currentLang) {
+              const n = cy.getElementById(String(selectedNodeId));
+              if (n && n.nonempty()) n.data('label', out.value || n.data('label'));
+            }
+          } catch { alert('Failed to refresh translation'); }
+        });
 
         // Zoom controls with smooth animation
         function smoothZoom(factor){
