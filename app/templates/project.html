@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ project.name }} - Graph</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900">
+    <div class="max-w-6xl mx-auto p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-semibold">{{ project.name }}</h1>
+        <a class="text-blue-600 underline" href="/">Home</a>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div class="lg:col-span-3">
+          <div class="mb-3 flex flex-wrap gap-2 items-center">
+            <input id="searchBox" type="text" placeholder="Search nodes..." class="border rounded px-2 py-1" />
+            <select id="statusFilter" class="border rounded px-2 py-1">
+              <option value="">All</option>
+              <option value="todo">Todo</option>
+              <option value="in-progress">In Progress</option>
+              <option value="done">Done</option>
+              <option value="blocked">Blocked</option>
+            </select>
+            <button id="btnAddNode" class="px-3 py-1 bg-blue-600 text-white rounded">+ Node</button>
+            <button id="btnAddEdge" class="px-3 py-1 bg-indigo-600 text-white rounded">+ Edge</button>
+            <button id="btnEditNode" class="px-3 py-1 bg-amber-600 text-white rounded">Edit Node</button>
+            <button id="btnDeleteNode" class="px-3 py-1 bg-rose-600 text-white rounded">Delete Node</button>
+            <button id="btnDeleteEdge" class="px-3 py-1 bg-rose-500 text-white rounded">Delete Edge</button>
+            <button id="btnCriticalPath" class="px-3 py-1 bg-teal-600 text-white rounded">Critical Path</button>
+            <button id="btnGroup" class="px-3 py-1 bg-purple-600 text-white rounded">Group</button>
+            <button id="btnUngroup" class="px-3 py-1 bg-purple-500 text-white rounded">Ungroup</button>
+            <button id="btnCollapse" class="px-3 py-1 bg-fuchsia-600 text-white rounded">Collapse</button>
+            <button id="btnExpand" class="px-3 py-1 bg-fuchsia-500 text-white rounded">Expand</button>
+            <button id="btnFit" class="px-3 py-1 bg-slate-600 text-white rounded">Fit</button>
+            <button id="btnExportJSON" class="px-3 py-1 bg-slate-700 text-white rounded">Export JSON</button>
+            <label class="px-3 py-1 bg-slate-700 text-white rounded cursor-pointer">Import JSON<input id="importInput" type="file" accept="application/json" class="hidden" /></label>
+            <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
+            <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
+          </div>
+          <div id="cy" class="w-full h-[70vh] bg-white rounded shadow"></div>
+        </div>
+        <aside class="lg:col-span-1 bg-white rounded shadow p-4 space-y-4">
+          <h2 class="font-medium">Task Panel</h2>
+          <div>
+            <label class="block text-sm text-slate-600">Selected Node ID</label>
+            <div id="selNode" class="text-sm font-mono text-slate-800">—</div>
+          </div>
+          <div>
+            <label class="block text-sm">Status</label>
+            <select id="statusSelect" class="w-full border rounded p-2">
+              <option value="planned">planned</option>
+              <option value="in-progress">in-progress</option>
+              <option value="done">done</option>
+              <option value="blocked">blocked</option>
+            </select>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold">Comments</h3>
+            <ul id="commentsList" class="text-sm space-y-1 max-h-32 overflow-auto"></ul>
+          </div>
+          <form id="commentForm" class="space-y-2">
+            <div>
+              <label class="block text-sm">Comment</label>
+              <textarea name="body" class="w-full border rounded p-2" rows="3" placeholder="Write a comment"></textarea>
+            </div>
+            <input type="hidden" name="user_id" value="system-user" />
+            <button type="submit" class="px-3 py-1 bg-blue-600 text-white rounded">Add Comment</button>
+          </form>
+          <div>
+            <h3 class="text-sm font-semibold">Time</h3>
+            <ul id="timeList" class="text-sm space-y-1 max-h-24 overflow-auto"></ul>
+          </div>
+          <form id="timeForm" class="space-y-2">
+            <div>
+              <label class="block text-sm">Hours</label>
+              <input name="hours" type="number" step="0.1" class="w-full border rounded p-2" placeholder="1.0" />
+            </div>
+            <input type="hidden" name="user_id" value="system-user" />
+            <button type="submit" class="px-3 py-1 bg-emerald-600 text-white rounded">Add Time</button>
+          </form>
+          <div>
+            <h3 class="text-sm font-semibold">Costs</h3>
+            <ul id="costList" class="text-sm space-y-1 max-h-24 overflow-auto"></ul>
+          </div>
+          <form id="costForm" class="space-y-2">
+            <div>
+              <label class="block text-sm">Amount</label>
+              <input name="amount" type="number" step="0.01" class="w-full border rounded p-2" placeholder="100" />
+            </div>
+            <button type="submit" class="px-3 py-1 bg-amber-600 text-white rounded">Add Cost</button>
+          </form>
+        </aside>
+      </div>
+    </div>
+
+    <script>
+      const projectId = "{{ project.id }}";
+
+      async function fetchGraph() {
+        const [nodesRes, edgesRes] = await Promise.all([
+          fetch(`/api/v1/projects/${projectId}/nodes`),
+          fetch(`/api/v1/projects/${projectId}/edges`),
+        ]);
+        const nodesJson = await nodesRes.json();
+        const edgesJson = await edgesRes.json();
+        return { nodes: nodesJson.data, edges: edgesJson.data };
+      }
+
+      function toElements(graph) {
+        const dotIcon = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">\
+            <circle cx="25" cy="25" r="12" fill="#0f172a"/>\
+            <circle cx="75" cy="25" r="12" fill="#0f172a"/>\
+            <circle cx="25" cy="75" r="12" fill="#0f172a"/>\
+            <circle cx="75" cy="75" r="12" fill="#0f172a"/>\
+            <circle cx="50" cy="50" r="12" fill="#0f172a"/>\
+          </svg>'
+        );
+        const nodes = graph.nodes.map(n => ({
+          data: {
+            id: String(n.id),
+            label: n.title,
+            score: n.importance_score,
+            status: n.status,
+            is_group: !!n.is_group,
+            parent: (n.parent_id !== null && n.parent_id !== undefined) ? String(n.parent_id) : undefined,
+            dotIcon: dotIcon,
+            savedX: (n.position && typeof n.position.x === 'number') ? n.position.x : null,
+            savedY: (n.position && typeof n.position.y === 'number') ? n.position.y : null
+          },
+          position: n.position
+        }));
+        const edges = graph.edges.map(e => ({ data: { id: String(e.id), source: String(e.source_node_id), target: String(e.target_node_id), type: e.type, weight: e.weight }}));
+        return [...nodes, ...edges];
+      }
+
+      (async function init() {
+        let graph = await fetchGraph();
+        const allHavePositions = Array.isArray(graph.nodes) && graph.nodes.length > 0 && graph.nodes.every(n => n.position && typeof n.position.x === 'number' && typeof n.position.y === 'number');
+        const cy = cytoscape({
+          container: document.getElementById('cy'),
+          elements: toElements(graph),
+          style: [
+            { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(score, 0, 10, 20, 60)', 'height': 'mapData(score, 0, 10, 20, 60)'} },
+            { selector: 'edge', style: { 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'target-arrow-shape': 'triangle' } },
+            { selector: 'node[status = "planned"]', style: { 'background-color': '#38bdf8' } },
+            { selector: 'node[status = "done"]', style: { 'background-color': '#22c55e' } },
+            { selector: 'node[status = "in-progress"]', style: { 'background-color': '#f59e0b' } },
+            { selector: 'node[status = "blocked"]', style: { 'background-color': '#ef4444' } },
+            { selector: '.cp', style: { 'border-width': 4, 'border-color': '#14b8a6' } },
+            { selector: 'node[?is_group]', style: {
+                'shape': 'ellipse',
+                'width': 'mapData(score, 0, 10, 28, 68)',
+                'height': 'mapData(score, 0, 10, 28, 68)',
+                'border-width': 0,
+                'border-color': '#0f172a',
+                'border-opacity': 0,
+                'background-opacity': 0,
+                'background-color': 'transparent'
+              }
+            },
+            { selector: 'node.collapsed', style: {
+                'background-image': 'data(dotIcon)',
+                'background-fit': 'contain',
+                'background-width': '65%',
+                'background-height': '65%',
+                'background-position-x': '50%',
+                'background-position-y': '50%',
+                'background-repeat': 'no-repeat'
+              }
+            },
+          ],
+          layout: { name: allHavePositions ? 'preset' : 'preset' }
+        });
+        cy.fit();
+
+        function applyInitialPositions() {
+          // Set saved positions for nodes that have them
+          cy.nodes().forEach(n => {
+            const x = n.data('savedX');
+            const y = n.data('savedY');
+            if (typeof x === 'number' && typeof y === 'number') {
+              n.position({ x, y });
+            }
+          });
+          // Layout only nodes without saved positions
+          const needLayout = cy.nodes().filter(n => !(typeof n.data('savedX') === 'number' && typeof n.data('savedY') === 'number'));
+          if (needLayout.length > 0) {
+            needLayout.layout({ name: 'cose' }).run();
+          }
+        }
+        applyInitialPositions();
+
+        const selEl = document.getElementById('selNode');
+        let selectedNodeId = null;
+        let selectedEdgeId = null;
+        async function refreshLists(nodeId) {
+          const [c, t, k] = await Promise.all([
+            fetch(`/api/v1/nodes/${nodeId}/comments`).then(r=>r.json()),
+            fetch(`/api/v1/nodes/${nodeId}/time-entries`).then(r=>r.json()),
+            fetch(`/api/v1/nodes/${nodeId}/cost-entries`).then(r=>r.json()),
+          ]);
+          const commentsList = document.getElementById('commentsList');
+          commentsList.innerHTML = '';
+          c.data.forEach(x => {
+            const li = document.createElement('li');
+            li.textContent = `${x.body}`;
+            commentsList.appendChild(li);
+          });
+          const timeList = document.getElementById('timeList');
+          timeList.innerHTML = '';
+          t.data.forEach(x => {
+            const li = document.createElement('li');
+            li.textContent = `${x.hours}h`;
+            timeList.appendChild(li);
+          });
+          const costList = document.getElementById('costList');
+          costList.innerHTML = '';
+          k.data.forEach(x => {
+            const li = document.createElement('li');
+            li.textContent = `${x.amount} ${x.currency || 'USD'}`;
+            costList.appendChild(li);
+          });
+        }
+
+        cy.on('tap', 'node', async (evt) => {
+          selectedNodeId = evt.target.data('id');
+          selEl.textContent = selectedNodeId;
+          selectedEdgeId = null;
+          // set status select to node status
+          const sel = document.getElementById('statusSelect');
+          if (sel) sel.value = String(evt.target.data('status') || 'planned');
+          await refreshLists(selectedNodeId);
+        });
+        cy.on('tap', 'edge', (evt) => {
+          selectedEdgeId = evt.target.data('id');
+          selectedNodeId = null;
+          selEl.textContent = '—';
+        });
+
+        async function postJSON(url, data) {
+          const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+          if (!res.ok) throw new Error('Request failed');
+          return res.json();
+        }
+        async function patchJSON(url, data) {
+          const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+          if (!res.ok) throw new Error('Request failed');
+          return res.json();
+        }
+        async function del(url) {
+          const res = await fetch(url, { method: 'DELETE' });
+          if (!res.ok && res.status !== 204) throw new Error('Request failed');
+        }
+
+        function addNodeToCy(n) {
+          cy.add({ group: 'nodes', data: { id: n.id, label: n.title, score: n.importance_score || 0, status: n.status || 'todo' } });
+          cy.layout({ name: 'preset' }).run();
+          cy.fit();
+        }
+        function addEdgeToCy(e) {
+          cy.add({ group: 'edges', data: { id: e.id, source: e.source_node_id, target: e.target_node_id, type: e.type, weight: e.weight } });
+          cy.layout({ name: 'preset' }).run();
+          cy.fit();
+        }
+
+        document.getElementById('commentForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (!selectedNodeId) return;
+          const fd = new FormData(e.target);
+          await postJSON(`/api/v1/nodes/${selectedNodeId}/comments`, { user_id: fd.get('user_id'), body: fd.get('body') });
+          e.target.reset();
+          await refreshLists(selectedNodeId);
+        });
+
+        document.getElementById('timeForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (!selectedNodeId) return;
+          const fd = new FormData(e.target);
+          await postJSON(`/api/v1/nodes/${selectedNodeId}/time-entries`, { user_id: fd.get('user_id'), hours: parseFloat(fd.get('hours')) || 0 });
+          e.target.reset();
+          await refreshLists(selectedNodeId);
+        });
+
+        // Status selector change handler
+        document.getElementById('statusSelect').addEventListener('change', async (e) => {
+          if (!selectedNodeId) return;
+          const value = e.target.value;
+          const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { status: value });
+          const n = cy.getElementById(selectedNodeId);
+          n.data('status', resp.data.status);
+        });
+
+        document.getElementById('costForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (!selectedNodeId) return;
+          const fd = new FormData(e.target);
+          await postJSON(`/api/v1/nodes/${selectedNodeId}/cost-entries`, { amount: parseFloat(fd.get('amount')) || 0, currency: 'USD', incurred_at: new Date().toISOString() });
+          e.target.reset();
+          await refreshLists(selectedNodeId);
+        });
+
+        document.getElementById('btnAddNode').addEventListener('click', async () => {
+          const title = prompt('Node title');
+          if (!title) return;
+          const resp = await postJSON(`/api/v1/projects/${projectId}/nodes`, { title });
+          addNodeToCy(resp.data);
+        });
+
+        document.getElementById('btnEditNode').addEventListener('click', async () => {
+          if (!selectedNodeId) { alert('Select a node'); return; }
+          const n = cy.getElementById(selectedNodeId);
+          const cur = n.data('label') || '';
+          const title = prompt('New title (leave empty to keep)', cur) || cur;
+          const status = prompt('Status (planned|in-progress|done|blocked)', String(n.data('status')||'planned')) || String(n.data('status')||'planned');
+          if (!title) return;
+          const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { title, status });
+          n.data('label', resp.data.title);
+          if (resp.data.status) n.data('status', resp.data.status);
+        });
+
+        document.getElementById('btnDeleteNode').addEventListener('click', async () => {
+          if (!selectedNodeId) { alert('Select a node'); return; }
+          if (!confirm('Delete node?')) return;
+          await del(`/api/v1/nodes/${selectedNodeId}`);
+          cy.getElementById(selectedNodeId).remove();
+          selectedNodeId = null;
+          selEl.textContent = '—';
+        });
+
+        document.getElementById('btnAddEdge').addEventListener('click', async () => {
+          alert('Pick source node, then target node');
+          let sourceId = null;
+          const pickHandler = (evt) => {
+            if (!sourceId) {
+              sourceId = evt.target.data('id');
+            } else {
+              const targetId = evt.target.data('id');
+              cy.off('tap', 'node', pickHandler);
+              postJSON(`/api/v1/projects/${projectId}/edges`, { source_node_id: sourceId, target_node_id: targetId })
+                .then(resp => addEdgeToCy(resp.data))
+                .catch(() => alert('Edge creation failed'));
+            }
+          };
+          cy.on('tap', 'node', pickHandler);
+        });
+
+        document.getElementById('btnDeleteEdge').addEventListener('click', async () => {
+          if (!selectedEdgeId) { alert('Tap an edge to select it'); return; }
+          if (!confirm('Delete edge?')) return;
+          await del(`/api/v1/edges/${selectedEdgeId}`);
+          cy.getElementById(selectedEdgeId).remove();
+          selectedEdgeId = null;
+        });
+
+        document.getElementById('btnCriticalPath').addEventListener('click', async () => {
+          const res = await fetch(`/api/v1/projects/${projectId}/metrics`).then(r=>r.json());
+          const ids = (res.data && res.data.critical_path_hint && res.data.critical_path_hint.node_ids) || [];
+          cy.elements().removeClass('cp');
+          ids.forEach((id, i) => {
+            const el = cy.getElementById(id);
+            el.addClass('cp');
+          });
+        });
+
+        // Multi-select (hold Shift to select multiple)
+        let multiSelected = new Set();
+        cy.on('tap', 'node', (evt) => {
+          if (evt.originalEvent && evt.originalEvent.shiftKey) {
+            const id = evt.target.id();
+            if (multiSelected.has(id)) multiSelected.delete(id); else multiSelected.add(id);
+            evt.target.toggleClass('cp');
+          } else {
+            multiSelected.clear();
+          }
+        });
+
+        document.getElementById('btnGroup').addEventListener('click', async () => {
+          if (multiSelected.size < 1) { alert('Hold Shift and select nodes to group'); return; }
+          const title = prompt('Group title', 'Group') || 'Group';
+          const ids = Array.from(multiSelected);
+          const res = await postJSON(`/api/v1/projects/${projectId}/groups`, { title, node_ids: ids });
+          // reload graph for simplicity
+          graph = await fetchGraph();
+          cy.elements().remove();
+          cy.add(toElements(graph));
+          cy.layout({ name: 'preset' }).run();
+          cy.fit();
+          multiSelected.clear();
+        });
+
+        document.getElementById('btnUngroup').addEventListener('click', async () => {
+          if (!selectedNodeId) { alert('Select a group node'); return; }
+          const nd = cy.getElementById(selectedNodeId);
+          if (!nd || !nd.data('is_group')) { alert('Selected node is not a group'); return; }
+          await postJSON(`/api/v1/groups/${selectedNodeId}/ungroup`, {});
+          graph = await fetchGraph();
+          cy.elements().remove();
+          cy.add(toElements(graph));
+          cy.layout({ name: 'preset' }).run();
+        });
+
+        // Collapse / Expand groups (pure UI)
+        const collapsedGroups = new Set((JSON.parse(localStorage.getItem('collapsedGroups') || '[]') || []).map(String));
+        function persistCollapsed() {
+          localStorage.setItem('collapsedGroups', JSON.stringify(Array.from(collapsedGroups)));
+        }
+        function collapseGroup(groupId) {
+          const gid = String(groupId);
+          const children = cy.nodes().filter(n => String(n.data('parent')) === gid);
+          children.forEach(ch => { ch.data('origParent', gid); ch.move({ parent: null }); ch.style('display', 'none'); });
+          const grp = cy.getElementById(groupId);
+          if (grp) grp.addClass('collapsed');
+        }
+        function expandGroup(groupId) {
+          const gid = String(groupId);
+          const children = cy.nodes().filter(n => String(n.data('origParent')) === gid);
+          children.forEach(ch => { ch.move({ parent: gid }); ch.removeData('origParent'); ch.style('display', 'element'); });
+          const grp = cy.getElementById(groupId);
+          if (grp) grp.removeClass('collapsed');
+        }
+        // Apply persisted states after initial render
+        // 1) Collapse ALL groups by default
+        cy.nodes('[?is_group]').forEach(g => collapseGroup(g.id()));
+        // 2) Expand those that are not in persisted collapsed set
+        cy.nodes('[?is_group]').forEach(g => {
+          if (!collapsedGroups.has(String(g.id()))) {
+            expandGroup(g.id());
+          }
+        });
+
+        // 3) Re-apply saved positions for groups to override any layout shifts
+        function reapplySavedGroupPositions() {
+          cy.nodes('[?is_group]').forEach(g => {
+            const x = g.data('savedX');
+            const y = g.data('savedY');
+            if (typeof x === 'number' && typeof y === 'number') {
+              g.position({ x, y });
+            }
+          });
+        }
+        reapplySavedGroupPositions();
+
+        document.getElementById('btnCollapse').addEventListener('click', () => {
+          if (!selectedNodeId) { alert('Select a group node'); return; }
+          const nd = cy.getElementById(selectedNodeId);
+          if (!nd || !nd.data('is_group')) { alert('Selected node is not a group'); return; }
+          collapseGroup(selectedNodeId);
+          collapsedGroups.add(selectedNodeId);
+          persistCollapsed();
+        });
+
+        document.getElementById('btnExpand').addEventListener('click', () => {
+          if (!selectedNodeId) { alert('Select a group node'); return; }
+          const nd = cy.getElementById(selectedNodeId);
+          if (!nd || !nd.data('is_group')) { alert('Selected node is not a group'); return; }
+          expandGroup(selectedNodeId);
+          collapsedGroups.delete(selectedNodeId);
+          persistCollapsed();
+        });
+
+        // Double-click (fast two taps) on group to toggle collapse/expand
+        let lastTapAt = 0;
+        let lastTapId = null;
+        cy.on('tap', 'node', (evt) => {
+          // ignore when using Shift multi-select
+          if (evt.originalEvent && evt.originalEvent.shiftKey) return;
+          const id = evt.target.id();
+          const now = Date.now();
+          if (evt.target.data('is_group') && lastTapId === id && (now - lastTapAt) < 300) {
+            const isCollapsed = collapsedGroups.has(id);
+            if (isCollapsed) { expandGroup(id); collapsedGroups.delete(id); }
+            else { collapseGroup(id); collapsedGroups.add(id); }
+            persistCollapsed();
+            lastTapAt = 0; lastTapId = null;
+          } else {
+            lastTapAt = now; lastTapId = id;
+          }
+        });
+
+        // LOD: hide nodes below threshold depending on zoom level
+        function applyLOD() {
+          const z = cy.zoom();
+          const total = cy.nodes().length;
+          // Only hide at low zoom for sufficiently large graphs
+          let threshold = -1;
+          if (total > 100) {
+            if (z < 0.4) threshold = 1.5;
+            else if (z < 0.8) threshold = 0.6;
+            else threshold = -1;
+          }
+
+          let shown = 0;
+          cy.nodes().forEach(n => {
+            const score = n.data('score') || 0;
+            const isSelected = selectedNodeId && n.id() === selectedNodeId;
+            const isCollapsedChild = Boolean(n.data('origParent'));
+            const visible = !isCollapsedChild && (threshold < 0 || score >= threshold || isSelected);
+            n.style('display', visible ? 'element' : 'none');
+            if (visible) shown++;
+          });
+
+          // Safety: if nothing would be visible, show all
+          if (shown === 0) {
+            cy.nodes().forEach(n => {
+              if (!n.data('origParent')) n.style('display', 'element');
+            });
+          }
+        }
+        cy.on('zoom', applyLOD);
+        applyLOD();
+
+        // Search/filter
+        function applySearchAndFilter() {
+          const q = (document.getElementById('searchBox').value || '').toLowerCase();
+          const f = (document.getElementById('statusFilter').value || '').toLowerCase();
+          cy.nodes().forEach(n => {
+            const matchesText = !q || (String(n.data('label') || '').toLowerCase().includes(q));
+            const matchesStatus = !f || (String(n.data('status') || '').toLowerCase() === f);
+            n.style('opacity', (matchesText && matchesStatus) ? 1 : 0.15);
+          });
+        }
+        document.getElementById('searchBox').addEventListener('input', applySearchAndFilter);
+        document.getElementById('statusFilter').addEventListener('change', applySearchAndFilter);
+
+        // Fit
+        document.getElementById('btnFit').addEventListener('click', () => cy.fit());
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+          if (e.key === 'n') document.getElementById('btnAddNode').click();
+          if (e.key === 'e') document.getElementById('btnAddEdge').click();
+          if (e.key === 'f') document.getElementById('btnFit').click();
+          if (e.key === 'Delete') document.getElementById(selectedNodeId ? 'btnDeleteNode' : 'btnDeleteEdge').click();
+          if (e.key === '/' ) document.getElementById('searchBox').focus();
+        });
+
+        // Export JSON (nodes+edges)
+        document.getElementById('btnExportJSON').addEventListener('click', async () => {
+          const nodes = await fetch(`/api/v1/projects/${projectId}/nodes`).then(r=>r.json());
+          const edges = await fetch(`/api/v1/projects/${projectId}/edges`).then(r=>r.json());
+          const blob = new Blob([JSON.stringify({nodes: nodes.data, edges: edges.data}, null, 2)], {type: 'application/json'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = `project-${projectId}.json`; a.click();
+          URL.revokeObjectURL(url);
+        });
+
+        // Import JSON (append)
+        document.getElementById('importInput').addEventListener('change', async (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const text = await file.text();
+          const data = JSON.parse(text);
+          for (const n of (data.nodes || [])) {
+            await postJSON(`/api/v1/projects/${projectId}/nodes`, { title: n.title || n.id, description: n.description || '' });
+          }
+          // reload graph after import to get IDs and edges correct
+          graph = await fetchGraph();
+          cy.elements().remove();
+          cy.add(toElements(graph));
+          cy.layout({ name: 'preset' }).run();
+        });
+
+        // Screenshot PNG
+        document.getElementById('btnScreenshot').addEventListener('click', () => {
+          const png = cy.png({full: true, scale: 2});
+          const a = document.createElement('a');
+          a.href = png; a.download = `graph-${projectId}.png`; a.click();
+        });
+
+        // Onboarding overlay
+        const help = document.getElementById('btnHelp');
+        help.addEventListener('click', () => {
+          alert('Shortcuts: n=new node, e=new edge, f=fit, /=search. Use toolbar to manage nodes/edges, sidebar for comments/time/cost.');
+        });
+
+        // Persist position after drag
+        cy.on('dragfree', 'node', async (evt) => {
+          const n = evt.target;
+          const p = n.position();
+          try {
+            await postJSON(`/api/v1/nodes/${n.id()}/position`, { x: p.x, y: p.y });
+            n.data('savedX', p.x);
+            n.data('savedY', p.y);
+          } catch (e) { /* ignore */ }
+        });
+      })();
+    </script>
+  </body>
+  </html>
+
