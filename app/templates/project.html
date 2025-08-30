@@ -33,8 +33,6 @@
             </select>
             <button id="btnAddNode" class="px-3 py-1 bg-blue-600 text-white rounded">+ Node</button>
             <button id="btnAddEdge" class="px-3 py-1 bg-indigo-600 text-white rounded">+ Edge</button>
-            <button id="btnEditNode" class="px-3 py-1 bg-amber-600 text-white rounded">Edit Node</button>
-            <button id="btnDeleteNode" class="px-3 py-1 bg-rose-600 text-white rounded">Delete Node</button>
             <button id="btnDeleteEdge" class="px-3 py-1 bg-rose-500 text-white rounded">Delete Edge</button>
             <button id="btnCriticalPath" class="px-3 py-1 bg-teal-600 text-white rounded">Critical Path</button>
             <button id="btnGroup" class="px-3 py-1 bg-purple-600 text-white rounded">Group</button>
@@ -104,6 +102,9 @@
             </div>
             <button type="submit" class="px-3 py-1 bg-amber-600 text-white rounded">Add Cost</button>
           </form>
+          <div>
+            <button id="btnDeleteNodePanel" class="w-full mt-2 px-3 py-2 bg-rose-600 text-white rounded hidden">Delete Node</button>
+          </div>
         </aside>
       </div>
     </div>
@@ -286,6 +287,8 @@
           selEl.textContent = selectedNodeId;
           const titleEl = document.getElementById('selNodeTitle');
           if (titleEl) titleEl.textContent = String(evt.target.data('label') || '—');
+          const delBtn = document.getElementById('btnDeleteNodePanel');
+          if (delBtn) delBtn.classList.remove('hidden');
           selectedEdgeId = null;
           // set status select to node status
           const sel = document.getElementById('statusSelect');
@@ -296,6 +299,8 @@
           selectedEdgeId = evt.target.data('id');
           selectedNodeId = null;
           selEl.textContent = '—';
+          const delBtn = document.getElementById('btnDeleteNodePanel');
+          if (delBtn) delBtn.classList.add('hidden');
         });
 
         async function postJSON(url, data) {
@@ -373,17 +378,7 @@
           addNodeToCy(resp.data);
         });
 
-        document.getElementById('btnEditNode').addEventListener('click', async () => {
-          if (!selectedNodeId) { alert('Select a node'); return; }
-          const n = cy.getElementById(selectedNodeId);
-          const cur = n.data('label') || '';
-          const title = prompt('New title (leave empty to keep)', cur) || cur;
-          const status = prompt('Status (planned|in-progress|done|blocked)', String(n.data('status')||'planned')) || String(n.data('status')||'planned');
-          if (!title) return;
-          const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { title, status });
-          n.data('label', resp.data.title);
-          if (resp.data.status) n.data('status', resp.data.status);
-        });
+        // Removed old Edit Node toolbar flow (replaced by inline editor)
 
         // Inline edit selected node title (Task Panel)
         const titleInlineEl = document.getElementById('selNodeTitle');
@@ -403,7 +398,7 @@
         });
         titleInlineEl.addEventListener('blur', () => commitInlineTitle());
 
-        document.getElementById('btnDeleteNode').addEventListener('click', async () => {
+        document.getElementById('btnDeleteNodePanel').addEventListener('click', async () => {
           if (!selectedNodeId) { alert('Select a node'); return; }
           if (!confirm('Delete node?')) return;
           await del(`/api/v1/nodes/${selectedNodeId}`);
@@ -635,7 +630,7 @@
           if (e.key === 'n') document.getElementById('btnAddNode').click();
           if (e.key === 'e') document.getElementById('btnAddEdge').click();
           if (e.key === 'f') document.getElementById('btnFit').click();
-          if (e.key === 'Delete') document.getElementById(selectedNodeId ? 'btnDeleteNode' : 'btnDeleteEdge').click();
+          if (e.key === 'Delete') document.getElementById(selectedNodeId ? 'btnDeleteNodePanel' : 'btnDeleteEdge').click();
           if (e.key === '/' ) document.getElementById('searchBox').focus();
         });
 

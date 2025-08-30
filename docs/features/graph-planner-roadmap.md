@@ -504,5 +504,7 @@ List Graph (response excerpt):
  - [x] 2025-08-30T01:35:00Z — Task Panel: inline edit node title (Enter/blur → PATCH /nodes/{id}).
  - [x] 2025-08-30T01:40:00Z — Project page layout: full-height workspace, no extra side paddings.
  - [x] 2025-08-30T01:45:00Z — Toggle Sidebar button with persisted state; graph resizes accordingly.
+ - [x] 2025-08-30T01:50:00Z — Delete Node moved to Task Panel; Delete key shortcut updated.
+ - [x] 2025-08-30T01:55:00Z — Removed obsolete Edit Node toolbar button; inline title editing is primary.
 
 
