@@ -6,7 +6,6 @@
     <title>{{ project.name }} - Graph</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
-    <script src="https://unpkg.com/cytoscape-edgehandles@4.0.1/cytoscape-edgehandles.min.js"></script>
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <div class="flex flex-col h-screen">
@@ -47,7 +46,13 @@
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
             <button id="btnToggleSidebar" class="ml-auto px-3 py-1 bg-slate-200 text-slate-800 rounded">Toggle Sidebar</button>
           </div>
-          <div id="cy" class="flex-1 min-h-0 bg-white rounded shadow mx-4 mb-4"></div>
+          <div class="relative flex-1 min-h-0 mx-4 mb-4">
+            <div id="cy" class="absolute inset-0 bg-white rounded shadow"></div>
+            <div class="absolute right-3 bottom-3 flex flex-col gap-2">
+              <button id="zoomIn" class="w-10 h-10 rounded bg-white/90 shadow text-xl">+</button>
+              <button id="zoomOut" class="w-10 h-10 rounded bg-white/90 shadow text-xl">−</button>
+            </div>
+          </div>
         </div>
         <div id="resizer" class="w-1 cursor-col-resize bg-slate-200"></div>
         <aside id="sidebar" class="bg-white rounded-l-none rounded shadow p-4 space-y-4 overflow-auto" style="width: 384px;">
@@ -262,28 +267,6 @@
           layout: { name: allHavePositions ? 'preset' : 'preset' }
         });
         cy.fit();
-
-        // Enable drag-to-connect (edgehandles)
-        try {
-          const eh = cy.edgehandles({
-            toggleOffOnLeave: true,
-            handleNodes: 'node',
-            handleSize: 12,
-            handleColor: '#0ea5e9',
-            handleLineType: 'straight',
-            handleLineWidth: 2,
-            snap: true,
-            noEdgeEventsInDraw: true
-          });
-          cy.on('ehcomplete', async (event, sourceNode, targetNode, addedEles) => {
-            try {
-              const resp = await postJSON(`/api/v1/projects/${projectId}/edges`, { source_node_id: sourceNode.id(), target_node_id: targetNode.id() });
-              // Replace temp edge with server one
-              if (addedEles && addedEles.length) addedEles.remove();
-              addEdgeToCy(resp.data);
-            } catch { alert('Edge creation failed'); }
-          });
-        } catch(e) { /* ignore if plugin not available */ }
 
         function applyInitialPositions() {
           // Set saved positions for nodes that have them
@@ -694,6 +677,36 @@
 
         // Fit
         document.getElementById('btnFit').addEventListener('click', () => cy.fit());
+
+        // Zoom controls with smooth animation
+        function smoothZoom(factor){
+          const target = cy.zoom() * factor;
+          cy.animate({ zoom: target }, { duration: 200, easing: 'ease-in-out' });
+        }
+        document.getElementById('zoomIn').addEventListener('click', () => smoothZoom(1.2));
+        document.getElementById('zoomOut').addEventListener('click', () => smoothZoom(1/1.2));
+        // smoother wheel zoom (RAF-based, responsive, anchored to cursor)
+        cy.userZoomingEnabled(false);
+        const cyContainer = cy.container();
+        let targetZoom = cy.zoom();
+        let anchor = { x: 0, y: 0 };
+        let zooming = false;
+        function stepZoom(){
+          if (!zooming) return;
+          const current = cy.zoom();
+          const next = current + (targetZoom - current) * 0.25; // responsiveness factor
+          cy.zoom({ level: next, renderedPosition: anchor });
+          if (Math.abs(targetZoom - next) < 0.001) { zooming = false; return; }
+          requestAnimationFrame(stepZoom);
+        }
+        cyContainer.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          const rect = cyContainer.getBoundingClientRect();
+          anchor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+          const factor = Math.exp(-e.deltaY * 0.0012); // slightly faster response
+          targetZoom = Math.max(0.05, Math.min(10, targetZoom * factor));
+          if (!zooming) { zooming = true; requestAnimationFrame(stepZoom); }
+        }, { passive: false });
 
         // Toggle sidebar
         const sidebar = document.getElementById('sidebar');

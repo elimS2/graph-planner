@@ -509,5 +509,7 @@ List Graph (response excerpt):
  - [x] 2025-08-30T02:00:00Z — Resizable Task Panel with drag handle; width persisted across sessions.
  - [x] 2025-08-30T02:05:00Z — Task Panel shows descendants count (reachability via outgoing edges).
  - [x] 2025-08-30T02:10:00Z — Task Panel displays node creation date (`created_at`).
+ - [x] 2025-08-30T02:15:00Z — Zoom controls (+/−) with smooth animation and UI buttons.
+ - [x] 2025-08-30T02:20:00Z — Wheel zoom revamped: anchored to cursor, RAF-smoothing, responsive.
 
 
