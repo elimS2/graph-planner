@@ -193,7 +193,9 @@
           elements: toElements(graph),
           style: [
             { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(score, 0, 10, 20, 60)', 'height': 'mapData(score, 0, 10, 20, 60)'} },
-            { selector: 'edge', style: { 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'target-arrow-shape': 'triangle' } },
+            { selector: 'edge', style: { 'line-color': '#64748b', 'width': 1.5, 'curve-style': 'bezier', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle', 'arrow-scale': 1.2 } },
+            { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } },
+            { selector: 'edge:selected', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'width': 2.5, 'arrow-scale': 1.5 } },
             { selector: 'node[status = "planned"]', style: { 'background-color': '#38bdf8' } },
             { selector: 'node[status = "done"]', style: { 'background-color': '#22c55e' } },
             { selector: 'node[status = "in-progress"]', style: { 'background-color': '#f59e0b' } },
@@ -308,9 +310,12 @@
         }
 
         function addNodeToCy(n) {
-          cy.add({ group: 'nodes', data: { id: n.id, label: n.title, score: n.importance_score || 0, status: n.status || 'todo' } });
-          cy.layout({ name: 'preset' }).run();
-          cy.fit();
+          const ext = cy.extent();
+          const padding = 30;
+          const pos = { x: ext.x1 + padding, y: ext.y1 + padding };
+          cy.add({ group: 'nodes', data: { id: n.id, label: n.title, score: n.importance_score || 0, status: n.status || 'todo', savedX: pos.x, savedY: pos.y }, position: pos });
+          // Persist initial position best-effort
+          postJSON(`/api/v1/nodes/${n.id}/position`, { x: pos.x, y: pos.y }).catch(()=>{});
         }
         function addEdgeToCy(e) {
           cy.add({ group: 'edges', data: { id: e.id, source: e.source_node_id, target: e.target_node_id, type: e.type, weight: e.weight } });

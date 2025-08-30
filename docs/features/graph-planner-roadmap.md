@@ -2,7 +2,7 @@
 
 Status: Draft
 Owner: Team
-Last Updated: 2025-08-30T01:08:51Z
+Last Updated: 2025-08-30T01:28:11Z
 
 ---
 
@@ -497,5 +497,8 @@ List Graph (response excerpt):
  - [x] 2025-08-29T14:27:31Z — Home UI for creating boards (projects): list existing, create form, Create & Open action.
  - [x] 2025-08-30T01:08:51Z — Auth MVP: protected write endpoints with login_required; login/logout UI in headers; 401 handling in client; roadmap updated.
  - [x] 2025-08-30T04:13:30Z — Board rename via PATCH /api/v1/projects/{id}; Rename buttons in project header and boards list.
+ - [x] 2025-08-30T04:20:00Z — New nodes appear at viewport top-left; position persisted via /nodes/{id}/position.
+ - [x] 2025-08-30T04:25:00Z — Edge direction arrows clarified (triangle heads, hover/selected emphasis).
+  - [x] 2025-08-30T01:28:11Z — Arrow styles tuned: smaller arrowheads and lighter hover/selected thickness.
 
 
