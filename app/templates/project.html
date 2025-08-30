@@ -217,11 +217,29 @@
             dotIcon: dotIcon,
             savedX: (n.position && typeof n.position.x === 'number') ? n.position.x : null,
             savedY: (n.position && typeof n.position.y === 'number') ? n.position.y : null,
-            created_at: n.created_at
+            created_at: n.created_at,
+            descendants: 0
           },
           position: n.position
         }));
         const edges = graph.edges.map(e => ({ data: { id: String(e.id), source: String(e.source_node_id), target: String(e.target_node_id), type: e.type, weight: e.weight }}));
+        // compute descendants counts on client (outgoing reachability)
+        const idToNode = new Map();
+        nodes.forEach(n => idToNode.set(n.data.id, n));
+        const adj = new Map();
+        nodes.forEach(n => adj.set(n.data.id, []));
+        graph.edges.forEach(e => { const a = adj.get(String(e.source_node_id)); if (a) a.push(String(e.target_node_id)); });
+        function countDesc(start){
+          const visited = new Set([start]);
+          const q = [start];
+          let c = 0;
+          while (q.length){
+            const cur = q.shift();
+            (adj.get(cur) || []).forEach(t => { if (!visited.has(t)) { visited.add(t); q.push(t); c++; } });
+          }
+          return c;
+        }
+        nodes.forEach(n => { n.data.descendants = countDesc(n.data.id); });
         return [...nodes, ...edges];
       }
 
@@ -233,7 +251,7 @@
           container: document.getElementById('cy'),
           elements: toElements(graph),
           style: [
-            { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(score, 0, 10, 20, 60)', 'height': 'mapData(score, 0, 10, 20, 60)'} },
+            { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(descendants, 0, 20, 20, 80)', 'height': 'mapData(descendants, 0, 20, 20, 80)'} },
             { selector: 'edge', style: { 'line-color': '#64748b', 'width': 1.5, 'curve-style': 'bezier', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle', 'arrow-scale': 1.2 } },
             { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } },
             { selector: 'edge:selected', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'width': 2.5, 'arrow-scale': 1.5 } },
@@ -401,8 +419,13 @@
         }
         function addEdgeToCy(e) {
           cy.add({ group: 'edges', data: { id: e.id, source: e.source_node_id, target: e.target_node_id, type: e.type, weight: e.weight } });
-          cy.layout({ name: 'preset' }).run();
-          cy.fit();
+          // recompute descendants sizes quickly
+          const nodes = cy.nodes();
+          const adj = new Map();
+          nodes.forEach(n => adj.set(n.id(), []));
+          cy.edges().forEach(ed => { const a = adj.get(ed.data('source')); if (a) a.push(ed.data('target')); });
+          function countDesc(start){ const vis = new Set([start]); const q=[start]; let c=0; while(q.length){ const cur=q.shift(); (adj.get(cur)||[]).forEach(t=>{ if(!vis.has(t)){vis.add(t); q.push(t); c++; } }); } return c; }
+          nodes.forEach(n => n.data('descendants', countDesc(n.id())));
         }
 
         document.getElementById('commentForm').addEventListener('submit', async (e) => {

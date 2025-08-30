@@ -511,5 +511,6 @@ List Graph (response excerpt):
  - [x] 2025-08-30T02:10:00Z — Task Panel displays node creation date (`created_at`).
  - [x] 2025-08-30T02:15:00Z — Zoom controls (+/−) with smooth animation and UI buttons.
  - [x] 2025-08-30T02:20:00Z — Wheel zoom revamped: anchored to cursor, RAF-smoothing, responsive.
+ - [x] 2025-08-30T02:25:00Z — Node sizing uses descendants count (reachability via edges).
 
 
