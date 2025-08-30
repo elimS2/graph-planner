@@ -66,6 +66,11 @@ def register_cli(app: Flask) -> None:
             if "is_group" not in ncols:
                 conn.execute(text("ALTER TABLE node ADD COLUMN is_group INTEGER NOT NULL DEFAULT 0"))
                 click.echo("Added node.is_group")
+            # Ensure priority exists on node
+            ncols = [row[1] for row in conn.execute(text("PRAGMA table_info(node)"))]
+            if "priority" not in ncols:
+                conn.execute(text("ALTER TABLE node ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'"))
+                click.echo("Added node.priority")
         # Ensure new tables exist
         db.create_all()
         click.echo("Upgrade complete")

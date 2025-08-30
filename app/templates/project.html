@@ -70,6 +70,15 @@
             <div id="createdAt" class="text-sm text-slate-800">—</div>
           </div>
           <div>
+            <label class="block text-sm">Priority</label>
+            <select id="prioritySelect" class="w-full border rounded p-2">
+              <option value="low">low</option>
+              <option value="normal" selected>normal</option>
+              <option value="high">high</option>
+              <option value="critical">critical</option>
+            </select>
+          </div>
+          <div>
             <label class="block text-sm">Status</label>
             <select id="statusSelect" class="w-full border rounded p-2">
               <option value="planned">todo</option>
@@ -361,6 +370,8 @@
           if (createdEl) createdEl.textContent = formatDate(evt.target.data('created_at'));
           const delBtn = document.getElementById('btnDeleteNodePanel');
           if (delBtn) delBtn.classList.remove('hidden');
+          const prSel = document.getElementById('prioritySelect');
+          if (prSel) prSel.value = String(evt.target.data('priority') || 'normal');
           // compute descendants via outgoing edges (reachability)
           const start = cy.getElementById(selectedNodeId);
           let count = 0;
@@ -453,6 +464,15 @@
           const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { status: value });
           const n = cy.getElementById(selectedNodeId);
           n.data('status', resp.data.status);
+        });
+
+        // Priority change handler
+        document.getElementById('prioritySelect').addEventListener('change', async (e) => {
+          if (!selectedNodeId) return;
+          const value = e.target.value;
+          const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { priority: value });
+          const n = cy.getElementById(selectedNodeId);
+          n.data('priority', resp.data.priority || value);
         });
 
         document.getElementById('costForm').addEventListener('submit', async (e) => {

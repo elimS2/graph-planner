@@ -26,6 +26,7 @@ class NodeSchema(Schema):
     parent_id = fields.String(allow_none=True)
     is_group = fields.Boolean()
     created_at = fields.String(dump_only=True)
+    priority = fields.String()
 
 
 class EdgeSchema(Schema):

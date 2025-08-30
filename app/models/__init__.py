@@ -79,6 +79,7 @@ class Node(db.Model, TimestampMixin):
     assignee_id: Mapped[Optional[str]] = mapped_column(db.String, ForeignKey("user.id"), nullable=True)
     parent_id: Mapped[Optional[str]] = mapped_column(db.String, ForeignKey("node.id", ondelete="SET NULL"), nullable=True)
     is_group: Mapped[bool] = mapped_column(db.Boolean, default=False, nullable=False)
+    priority: Mapped[str] = mapped_column(db.String, default="normal", nullable=False)
 
     project = relationship("Project", back_populates="nodes")
     assignee = relationship("User", foreign_keys=[assignee_id])
