@@ -48,7 +48,8 @@
           </div>
           <div id="cy" class="flex-1 min-h-0 bg-white rounded shadow mx-4 mb-4"></div>
         </div>
-        <aside id="sidebar" class="w-96 bg-white rounded-l-none rounded shadow p-4 space-y-4 overflow-auto">
+        <div id="resizer" class="w-1 cursor-col-resize bg-slate-200"></div>
+        <aside id="sidebar" class="bg-white rounded-l-none rounded shadow p-4 space-y-4 overflow-auto" style="width: 384px;">
           <h2 class="font-medium">Task Panel</h2>
           <div>
             <label class="block text-sm text-slate-600">Selected Node Title</label>
@@ -623,6 +624,45 @@
           applySidebarVisibility();
         });
         applySidebarVisibility();
+
+        // Sidebar resizer
+        (function setupResizer(){
+          const resizer = document.getElementById('resizer');
+          const sidebar = document.getElementById('sidebar');
+          function loadWidth(){
+            const w = parseInt(localStorage.getItem('sidebarWidth') || '384', 10);
+            const clamped = Math.max(260, Math.min(560, w));
+            sidebar.style.width = clamped + 'px';
+          }
+          loadWidth();
+          let dragging = false;
+          let startX = 0;
+          let startW = 384;
+          resizer.addEventListener('mousedown', (e) => {
+            dragging = true; startX = e.clientX; startW = sidebar.offsetWidth;
+            document.body.classList.add('select-none'); document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+          });
+          window.addEventListener('mouseup', () => {
+            if (!dragging) return;
+            dragging = false;
+            document.body.classList.remove('select-none');
+            document.body.style.cursor = '';
+            localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width||'384',10));
+          });
+          window.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            // Dragging left should INCREASE width, right should decrease
+            const delta = startX - e.clientX; // left: positive, right: negative
+            const newW = Math.max(260, Math.min(560, startW + delta));
+            sidebar.style.width = newW + 'px';
+            cy.resize();
+          });
+          // Hide resizer if sidebar hidden
+          function syncResizer(){ resizer.style.display = (localStorage.getItem('sidebarHidden') === '1') ? 'none' : ''; }
+          syncResizer();
+          toggleBtn.addEventListener('click', () => { setTimeout(() => { syncResizer(); cy.resize(); }, 0); });
+        })();
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
