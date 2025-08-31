@@ -61,6 +61,11 @@
         </div>
         <div id="resizer" class="w-1 cursor-col-resize bg-slate-200"></div>
         <aside id="sidebar" class="bg-white rounded-l-none rounded shadow p-4 space-y-4 overflow-auto" style="width: 384px;">
+          <div class="flex items-center gap-2 mb-1">
+            <button id="tabTask" class="px-2 py-1 text-xs rounded bg-slate-800 text-white">Task</button>
+            <button id="tabSettings" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Settings</button>
+          </div>
+          <div id="taskPanel" class="space-y-4">
           <h2 class="font-medium">Task Panel</h2>
           <div>
             <label class="block text-sm text-slate-600">Selected Node Title</label>
@@ -144,6 +149,28 @@
           </form>
           <div>
             <button id="btnDeleteNodePanel" class="w-full mt-2 px-3 py-2 bg-rose-600 text-white rounded hidden">Delete Node</button>
+          </div>
+          </div>
+
+          <div id="settingsPanel" class="space-y-3 hidden">
+            <div class="flex items-center justify-between">
+              <h3 class="font-medium">Settings</h3>
+              <span id="settingsSource" class="text-xs text-slate-500"></span>
+            </div>
+            <input id="settingsFilter" type="text" placeholder="Filter by key..." class="w-full border rounded px-2 py-1" />
+            <div id="settingsFallbackAlert" class="hidden text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-2"></div>
+            <div class="overflow-auto rounded border">
+              <table class="min-w-full text-sm">
+                <thead class="bg-slate-100 text-slate-700">
+                  <tr>
+                    <th class="text-left px-3 py-2 font-medium">Key</th>
+                    <th class="text-left px-3 py-2 font-medium">Value</th>
+                    <th class="text-left px-3 py-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="settingsTable" class="divide-y"></tbody>
+              </table>
+            </div>
           </div>
         </aside>
       </div>
@@ -1193,6 +1220,103 @@
           syncResizer();
           toggleBtn.addEventListener('click', () => { setTimeout(() => { syncResizer(); cy.resize(); }, 0); });
         })();
+
+        // Panel tabs: Task | Settings
+        const tabTask = document.getElementById('tabTask');
+        const tabSettings = document.getElementById('tabSettings');
+        const taskPanel = document.getElementById('taskPanel');
+        const settingsPanel = document.getElementById('settingsPanel');
+        // ensure declared before any call path
+        let settingsLoaded = false;
+        function showTask(){
+          taskPanel.classList.remove('hidden');
+          settingsPanel.classList.add('hidden');
+          tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
+          tabSettings.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
+          localStorage.setItem('sidebarTab', 'task');
+        }
+        function showSettings(){
+          taskPanel.classList.add('hidden');
+          settingsPanel.classList.remove('hidden');
+          tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
+          tabSettings.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
+          localStorage.setItem('sidebarTab', 'settings');
+          ensureSettingsLoaded();
+        }
+        tabTask.addEventListener('click', showTask);
+        tabSettings.addEventListener('click', showSettings);
+        // restore active tab
+        const savedTab = localStorage.getItem('sidebarTab') || 'task';
+        if (savedTab === 'settings') showSettings(); else showTask();
+
+        // Settings: fetch and render
+        async function ensureSettingsLoaded(){
+          if (settingsLoaded) return;
+          try {
+            const r = await fetch('/api/v1/settings/env');
+            if (!r.ok) throw new Error('Failed to load settings');
+            const j = await r.json();
+            const data = Array.isArray(j.data) ? j.data : [];
+            const meta = j.meta || {};
+            const tbody = document.getElementById('settingsTable');
+            tbody.innerHTML = '';
+            data.forEach(e => {
+              const tr = document.createElement('tr');
+              tr.setAttribute('data-key', e.key || '');
+              const tdKey = document.createElement('td'); tdKey.className='px-3 py-2 align-top whitespace-nowrap font-mono text-slate-800';
+              tdKey.textContent = e.key || '';
+              if (e.is_sensitive){
+                const badge = document.createElement('span');
+                badge.className = 'ml-2 text-[10px] uppercase tracking-wide bg-rose-100 text-rose-700 rounded px-1 py-0.5';
+                badge.textContent = 'sensitive';
+                tdKey.appendChild(badge);
+              }
+              const tdVal = document.createElement('td'); tdVal.className='px-3 py-2 align-top';
+              const val = document.createElement('div'); val.className='font-mono text-slate-800 break-all';
+              val.setAttribute('data-real', e.value || '');
+              val.setAttribute('data-masked', e.masked || '');
+              val.setAttribute('data-state', 'masked');
+              val.textContent = e.masked || '';
+              tdVal.appendChild(val);
+              const tdAct = document.createElement('td'); tdAct.className='px-3 py-2 align-top';
+              const row = document.createElement('div'); row.className='flex items-center gap-2';
+              const btnT = document.createElement('button'); btnT.className='px-2 py-1 text-xs rounded bg-slate-200 text-slate-800'; btnT.textContent='Show';
+              btnT.addEventListener('click', ()=>{
+                const state = val.getAttribute('data-state') || 'masked';
+                if (state === 'masked'){ val.textContent = val.getAttribute('data-real') || ''; val.setAttribute('data-state','shown'); btnT.textContent='Hide'; }
+                else { val.textContent = val.getAttribute('data-masked') || ''; val.setAttribute('data-state','masked'); btnT.textContent='Show'; }
+              });
+              const btnC = document.createElement('button'); btnC.className='px-2 py-1 text-xs rounded bg-slate-700 text-white'; btnC.textContent='Copy';
+              btnC.addEventListener('click', async ()=>{
+                try { await navigator.clipboard.writeText(val.getAttribute('data-real') || ''); btnC.textContent='Copied'; setTimeout(()=>btnC.textContent='Copy', 1200); }
+                catch { btnC.textContent='Failed'; setTimeout(()=>btnC.textContent='Copy', 1200); }
+              });
+              row.appendChild(btnT); row.appendChild(btnC); tdAct.appendChild(row);
+              tr.appendChild(tdKey); tr.appendChild(tdVal); tr.appendChild(tdAct);
+              tbody.appendChild(tr);
+            });
+            const src = document.getElementById('settingsSource');
+            if (src) src.textContent = meta.source || '';
+            const alert = document.getElementById('settingsFallbackAlert');
+            if (alert) {
+              if (meta.fallback_used) { alert.textContent = '.env file not found. Displaying a limited subset from process environment.'; alert.classList.remove('hidden'); }
+              else { alert.classList.add('hidden'); }
+            }
+            // filter
+            const filter = document.getElementById('settingsFilter');
+            filter.addEventListener('input', ()=>{
+              const q = (filter.value || '').toLowerCase();
+              Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
+                const k = (tr.getAttribute('data-key') || '').toLowerCase();
+                tr.style.display = (!q || k.includes(q)) ? '' : 'none';
+              });
+            });
+            settingsLoaded = true;
+          } catch (e) {
+            const tbody = document.getElementById('settingsTable');
+            if (tbody) { tbody.innerHTML = '<tr><td class="px-3 py-2 text-rose-700" colspan="3">Failed to load settings</td></tr>'; }
+          }
+        }
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {

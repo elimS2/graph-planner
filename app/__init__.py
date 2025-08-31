@@ -45,12 +45,14 @@ def create_app(config_name: str | None = None) -> Flask:
     from .blueprints.tasks.routes import bp as tasks_bp
     from .blueprints.tracking.routes import bp as tracking_bp
     from .blueprints.users.routes import bp as users_bp
+    from .blueprints.settings.routes import bp as settings_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(graph_bp)
     app.register_blueprint(tasks_bp)
     app.register_blueprint(tracking_bp)
     app.register_blueprint(users_bp)
+    app.register_blueprint(settings_bp)
 
     # Error handlers
     register_error_handlers(app)

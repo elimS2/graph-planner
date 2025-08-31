@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Settings - Environment</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900">
+    <div class="max-w-6xl mx-auto p-6 space-y-6">
+      <header class="flex items-center justify-between">
+        <h1 class="text-2xl font-semibold">Settings</h1>
+        <nav class="flex items-center gap-4 text-sm">
+          <a class="text-blue-600 hover:underline" href="/">Home</a>
+        </nav>
+      </header>
+
+      <section class="bg-white rounded shadow p-4 space-y-3">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 class="text-lg font-medium">Environment Variables</h2>
+            <p class="text-sm text-slate-600">Source: {{ source }}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <input id="filterBox" type="text" placeholder="Filter by key..." class="border rounded px-3 py-2" />
+          </div>
+        </div>
+
+        {% if fallback_used %}
+          <div class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+            .env file not found. Displaying a limited subset from process environment.
+          </div>
+        {% endif %}
+
+        <div class="overflow-auto rounded border">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-100 text-slate-700">
+              <tr>
+                <th class="text-left px-3 py-2 font-medium">Key</th>
+                <th class="text-left px-3 py-2 font-medium">Value</th>
+                <th class="text-left px-3 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="envTable" class="divide-y">
+              {% for e in entries %}
+              <tr data-key="{{ e.key }}">
+                <td class="px-3 py-2 align-top whitespace-nowrap font-mono text-slate-800">
+                  {{ e.key }}
+                  {% if e.is_sensitive %}
+                    <span class="ml-2 text-[10px] uppercase tracking-wide bg-rose-100 text-rose-700 rounded px-1 py-0.5">sensitive</span>
+                  {% endif %}
+                </td>
+                <td class="px-3 py-2 align-top">
+                  <div class="font-mono text-slate-800 break-all" data-real="{{ e.value }}" data-masked="{{ e.masked }}" data-state="masked"></div>
+                </td>
+                <td class="px-3 py-2 align-top">
+                  <div class="flex items-center gap-2">
+                    <button class="btn-toggle px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Show</button>
+                    <button class="btn-copy px-2 py-1 text-xs rounded bg-slate-700 text-white">Copy</button>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      (function init(){
+        const table = document.getElementById('envTable');
+        // initialize masked values
+        table.querySelectorAll('tr').forEach(row => {
+          const valueCell = row.querySelector('td:nth-child(2) div');
+          if (valueCell){ valueCell.textContent = valueCell.getAttribute('data-masked') || ''; }
+        });
+        // toggle show/hide
+        table.addEventListener('click', (e) => {
+          const btn = e.target.closest('.btn-toggle');
+          if (!btn) return;
+          const row = btn.closest('tr');
+          const valueCell = row.querySelector('td:nth-child(2) div');
+          const state = valueCell.getAttribute('data-state') || 'masked';
+          if (state === 'masked'){
+            valueCell.textContent = valueCell.getAttribute('data-real') || '';
+            valueCell.setAttribute('data-state', 'shown');
+            btn.textContent = 'Hide';
+          } else {
+            valueCell.textContent = valueCell.getAttribute('data-masked') || '';
+            valueCell.setAttribute('data-state', 'masked');
+            btn.textContent = 'Show';
+          }
+        });
+        // copy
+        table.addEventListener('click', async (e) => {
+          const btn = e.target.closest('.btn-copy');
+          if (!btn) return;
+          const row = btn.closest('tr');
+          const valueCell = row.querySelector('td:nth-child(2) div');
+          const value = valueCell.getAttribute('data-real') || '';
+          try {
+            await navigator.clipboard.writeText(value);
+            btn.textContent = 'Copied';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+          } catch {
+            btn.textContent = 'Failed';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+          }
+        });
+        // filter
+        const filterBox = document.getElementById('filterBox');
+        filterBox.addEventListener('input', () => {
+          const q = (filterBox.value || '').toLowerCase();
+          table.querySelectorAll('tr').forEach(row => {
+            const k = (row.getAttribute('data-key') || '').toLowerCase();
+            row.style.display = (!q || k.includes(q)) ? '' : 'none';
+          });
+        });
+      })();
+    </script>
+  </body>
+  </html>
+
+
