@@ -46,6 +46,10 @@
               <option value="">Original</option>
               <option value="en">English</option>
             </select>
+            <label class="ml-2 inline-flex items-center gap-2 text-sm text-slate-700">
+              <input id="showHiddenToggle" type="checkbox" class="align-middle">
+              <span>Show hidden</span>
+            </label>
             <button id="btnTrStats" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Translation Stats</button>
             <button id="btnTrRun" class="px-3 py-1 bg-indigo-600 text-white rounded">Run Translate</button>
             <button id="btnResetView" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Reset View</button>
@@ -114,6 +118,12 @@
               <button type="button" role="radio" aria-checked="false" data-value="high" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">high</button>
               <button type="button" role="radio" aria-checked="false" data-value="critical" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">critical</button>
             </div>
+          </div>
+          <div>
+            <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+              <input id="hideFromBoard" type="checkbox" class="align-middle">
+              <span>Hide from board</span>
+            </label>
           </div>
           <div>
             <label class="block text-sm font-semibold text-slate-600">Descendants (via edges)</label>
@@ -280,7 +290,11 @@
       }
 
       async function fetchGraph(lang="") {
-        const q = lang ? `?lang=${encodeURIComponent(lang)}` : "";
+        const showHidden = document.getElementById('showHiddenToggle')?.checked;
+        const params = new URLSearchParams();
+        if (lang) params.set('lang', lang);
+        if (showHidden) params.set('include_hidden', '1');
+        const q = params.toString() ? `?${params.toString()}` : "";
         const [nodesRes, edgesRes] = await Promise.all([
           fetch(`/api/v1/projects/${projectId}/nodes${q}`),
           fetch(`/api/v1/projects/${projectId}/edges`),
@@ -319,11 +333,15 @@
           if (link) { data.link_url = link; }
           // propagate per-node open preference
           if (typeof n.link_open_in_new_tab === 'boolean') { data.link_open_in_new_tab = !!n.link_open_in_new_tab; }
+          if (typeof n.is_hidden === 'boolean') { data.is_hidden = !!n.is_hidden; }
           return ({ data, position: n.position });
         });
         const prioById = new Map(nodes.map(ne => [ne.data.id, ne.data.priority]));
         const statusById = new Map(nodes.map(ne => [ne.data.id, ne.data.status]));
-        const edges = graph.edges.map(e => ({ data: { id: String(e.id), source: String(e.source_node_id), target: String(e.target_node_id), type: e.type, weight: e.weight, targetPriority: prioById.get(String(e.target_node_id)) || 'normal', targetStatus: statusById.get(String(e.target_node_id)) || 'planned', pathPriority: 'none' }}));
+        const nodeIds = new Set(nodes.map(ne => ne.data.id));
+        const edges = graph.edges
+          .filter(e => nodeIds.has(String(e.source_node_id)) && nodeIds.has(String(e.target_node_id)))
+          .map(e => ({ data: { id: String(e.id), source: String(e.source_node_id), target: String(e.target_node_id), type: e.type, weight: e.weight, targetPriority: prioById.get(String(e.target_node_id)) || 'normal', targetStatus: statusById.get(String(e.target_node_id)) || 'planned', pathPriority: 'none' }}));
         // compute descendants counts on client (outgoing reachability) and priority paths
         const idToNode = new Map();
         nodes.forEach(n => idToNode.set(n.data.id, n));
@@ -387,6 +405,7 @@
             { selector: 'edge[pathPriority = "critical"]', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444' } },
             { selector: 'edge[targetPriority = "high"][targetStatus != "done"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' } },
             { selector: 'edge[targetPriority = "critical"][targetStatus != "done"]', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444' } },
+            { selector: 'node[?is_hidden]', style: { 'opacity': 0.35, 'border-style': 'dashed', 'border-width': 2, 'border-color': '#64748b' } },
             /* Cytoscape doesn't support :hover selector here; remove to avoid errors */
             /* { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } }, */
             { selector: 'edge:selected', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'width': 2.5, 'arrow-scale': 1.5 } },
@@ -579,6 +598,11 @@
           if (delBtn) delBtn.classList.remove('hidden');
           const prGrp = document.getElementById('priorityRadios');
           if (prGrp) setRadioGroupValue(prGrp, String(evt.target.data('priority') || 'normal'));
+          // reflect hidden state
+          try {
+            const hideChk = document.getElementById('hideFromBoard');
+            if (hideChk) hideChk.checked = !!evt.target.data('is_hidden');
+          } catch {}
           // reflect per-node open target in checkbox (fallback to storage default)
           try {
             const chk = document.getElementById('openInNewTab');
@@ -774,6 +798,38 @@
           grp.addEventListener('keydown', (e) => {
             const k = (e.key || '').toLowerCase();
             if (k === 'enter' || k === ' ') { const f = document.activeElement && document.activeElement.closest && document.activeElement.closest('button[data-value]'); if (f) { e.preventDefault(); f.click(); } }
+          });
+        })();
+
+        // Hide from board checkbox wiring
+        (function wireHideToggle(){
+          const chk = document.getElementById('hideFromBoard');
+          if (!chk) return;
+          chk.addEventListener('change', async () => {
+            if (!selectedNodeId) { chk.checked = !chk.checked; return; }
+            const desired = !!chk.checked;
+            chk.disabled = true;
+            try {
+              const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { is_hidden: desired });
+              const n = cy.getElementById(String(selectedNodeId));
+              if (desired) {
+                // remove node from cy and clear selection
+                if (n && n.nonempty()) n.remove();
+                selectedNodeId = null;
+                selEl.textContent = '—';
+                const delBtn = document.getElementById('btnDeleteNodePanel');
+                if (delBtn) delBtn.classList.add('hidden');
+              } else {
+                // In normal mode we wouldn't see hidden nodes; if recovery mode appears later, update style here
+                if (n && n.nonempty()) n.data('is_hidden', !!(resp && resp.data && resp.data.is_hidden));
+              }
+            } catch (e) {
+              // revert on error
+              chk.checked = !chk.checked;
+              alert((e && e.message) || 'Failed to update hidden flag');
+            } finally {
+              chk.disabled = false;
+            }
           });
         })();
 
@@ -1134,6 +1190,8 @@
           cy.add(toElements(graph));
           cy.layout({ name: 'preset' }).run();
           cy.fit();
+          // Recompute edge path colors based on current graph
+          try { recomputePriorityPaths(); } catch {}
         });
 
         document.getElementById('btnTrStats').addEventListener('click', async ()=>{
@@ -1816,6 +1874,26 @@
             n.data('savedY', p.y);
           } catch (e) { /* ignore */ }
         });
+
+        // Show hidden toggle wiring
+        (function wireShowHidden(){
+          const chk = document.getElementById('showHiddenToggle');
+          if (!chk) return;
+          // restore saved state
+          const saved = localStorage.getItem('showHidden');
+          if (saved !== null) chk.checked = (saved === '1');
+          chk.addEventListener('change', async ()=>{
+            localStorage.setItem('showHidden', chk.checked ? '1' : '0');
+            const lang = (document.getElementById('langSelect')?.value || '');
+            graph = await fetchGraph(lang);
+            cy.elements().remove();
+            cy.add(toElements(graph));
+            cy.layout({ name: 'preset' }).run();
+            cy.fit();
+            // Recompute edge path colors in the updated graph
+            try { recomputePriorityPaths(); } catch {}
+          });
+        })();
       })();
     </script>
   </body>

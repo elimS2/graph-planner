@@ -27,6 +27,7 @@ class NodeSchema(Schema):
     assignee_id = fields.String(allow_none=True)
     parent_id = fields.String(allow_none=True)
     is_group = fields.Boolean()
+    is_hidden = fields.Boolean()
     created_at = fields.String(dump_only=True)
     updated_at = fields.String(dump_only=True)
     priority = fields.String()

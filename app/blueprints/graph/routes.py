@@ -164,7 +164,19 @@ def update_project(id: str):
 @bp.get("/projects/<project_id>/nodes")
 def list_nodes(project_id: str):
     lang = (request.args.get("lang") or "").lower().strip()
-    items = db.session.query(Node).filter_by(project_id=project_id).all()
+    include_hidden_raw = (request.args.get("include_hidden") or "").strip().lower()
+    include_hidden = include_hidden_raw in {"1", "true", "yes", "y", "on"}
+    base_q = db.session.query(Node).filter_by(project_id=project_id)
+    if not include_hidden:
+        # Execute with hidden-filter, but fall back to no-filter if DB not migrated yet
+        try:
+            items = base_q.filter(Node.is_hidden == False).all()  # noqa: E712
+        except SQLAlchemyError:
+            items = base_q.all()
+        except Exception:
+            items = base_q.all()
+    else:
+        items = base_q.all()
     payload = NodeSchema(many=True).dump(items)
     # attach layout if exists (best-effort)
     try:

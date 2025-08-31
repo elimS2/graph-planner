@@ -153,6 +153,7 @@ Edge Cases
 - Discoverability of unhide: Without recovery view, users cannot unhide. Mitigation: add optional global “Show hidden” toggle; document fallback via API.
 - Data skew during concurrent edits: Use last-write-wins; UI disables control while request is in-flight; re-fetch on resume if needed.
 - Large graphs: Additional filtering is trivial; ensure no extra N+1 queries are introduced.
+- Migration timing: API could 500 if DB not migrated yet. Mitigation: server wraps `is_hidden` filtering in a safe try/catch and falls back to no-filter.
 
 ### 8) API Contract Examples
 
@@ -188,9 +189,15 @@ Includes both hidden and visible nodes; each item has is_hidden flag
 
 ### 10) Changelog (Work Log)
 
-- [ ] 2025-08-31 — Roadmap drafted and awaiting approval.
-- [ ] TBD — Migration implemented.
-- [ ] TBD — API and UI implemented.
+- [x] 2025-08-31T18:44:15Z — Roadmap drafted and approved to start.
+- [x] 2025-08-31T18:44:15Z — Migration added: `c3d4e5f6a7b8_add_is_hidden_to_node`.
+- [x] 2025-08-31T18:44:15Z — Model updated: `Node.is_hidden` boolean with default False.
+- [x] 2025-08-31T18:44:15Z — Schema updated: `NodeSchema.is_hidden` added.
+- [x] 2025-08-31T18:44:15Z — API updated: `/projects/<id>/nodes` filters hidden by default; supports `include_hidden`.
+- [x] 2025-08-31T18:52:09Z — UI Task Panel checkbox “Hide from board” implemented; PATCH wired; node removed on hide.
+- [x] 2025-08-31T18:54:50Z — Optional “Show hidden” global toggle and hidden-node styles added; graph reload respects include_hidden.
+- [x] 2025-08-31T18:56:52Z — Backend hardened: safe fallback when `is_hidden` column is missing (pre-migration envs).
+- [x] 2025-08-31T19:01:07Z — Client hardened: edges filtered to existing nodes; hidden style selector switched to `node[?is_hidden]`.
 - [ ] TBD — Tests added/updated, manual verification done.
 
 ### 11) Open Questions
