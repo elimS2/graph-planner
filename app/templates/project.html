@@ -179,6 +179,13 @@
               <div class="flex items-center gap-2">
               </div>
             </div>
+            <div id="lodBlock" class="rounded border p-3 bg-white space-y-2">
+              <label class="inline-flex items-center gap-2">
+                <input id="lodToggle" type="checkbox" class="align-middle">
+                <span>Performance LOD (improve large graph zoom)</span>
+              </label>
+              <p class="text-xs text-slate-500">When enabled, low-importance nodes may fade/hide at low zoom to keep the view responsive. Disable to always show all nodes.</p>
+            </div>
             <div id="serverInfo" class="rounded border p-3 text-sm bg-white">
               <button id="serverInfoToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="serverInfoBody">
                 <span>Server Info</span>
@@ -260,6 +267,14 @@
         return r.json();
       }
       async function apiLogout(){ await fetch('/api/v1/auth/logout', {method:'POST'}); }
+
+      // LOD preference helpers (persisted in localStorage)
+      function getLodEnabled(){
+        return localStorage.getItem('lodEnabled') !== '0';
+      }
+      function setLodEnabled(enabled){
+        localStorage.setItem('lodEnabled', enabled ? '1' : '0');
+      }
 
       function wireAuthHeader(){
         const emailEl = document.getElementById('userEmail');
@@ -359,6 +374,32 @@
           return c;
         }
         nodes.forEach(n => { n.data.descendants = countDesc(n.data.id); });
+        // Compute lightweight LOD score for each node for zoom-level filtering
+        // lod_score combines normalized degree and descendants to approximate importance
+        const indegree = new Map();
+        nodes.forEach(n => indegree.set(n.data.id, 0));
+        graph.edges.forEach(e => {
+          const tgt = String(e.target_node_id);
+          if (indegree.has(tgt)) indegree.set(tgt, (indegree.get(tgt) || 0) + 1);
+        });
+        let maxDegree = 0;
+        let maxDescendants = 0;
+        const degreeById = new Map();
+        nodes.forEach(n => {
+          const out = (adj.get(n.data.id) || []).length;
+          const inn = indegree.get(n.data.id) || 0;
+          const deg = out + inn;
+          degreeById.set(n.data.id, deg);
+          if (deg > maxDegree) maxDegree = deg;
+          if (n.data.descendants > maxDescendants) maxDescendants = n.data.descendants;
+        });
+        nodes.forEach(n => {
+          const deg = degreeById.get(n.data.id) || 0;
+          const normDeg = maxDegree > 0 ? (deg / maxDegree) : 0;
+          const normDesc = maxDescendants > 0 ? (n.data.descendants / maxDescendants) : 0;
+          const lodScore = (0.6 * normDeg) + (0.4 * normDesc);
+          n.data.lod_score = Number(lodScore.toFixed(4));
+        });
         // mark edges on any path to high/critical (not done) targets
         const incoming = new Map(); nodes.forEach(n=>incoming.set(n.data.id, []));
         graph.edges.forEach(e => { (incoming.get(String(e.target_node_id))||[]).push(String(e.source_node_id)); });
@@ -1014,6 +1055,7 @@
           cy.elements().remove();
           cy.add(toElements(graph));
           cy.layout({ name: 'preset' }).run();
+          try { applyLOD(); applySearchAndFilter(); } catch {}
         });
 
         // Collapse / Expand groups (pure UI)
@@ -1094,33 +1136,69 @@
           }
         });
 
-        // LOD: hide nodes below threshold depending on zoom level
+        // LOD: zoom-aware visibility using lod_score with strong safeguards
         function applyLOD() {
           const z = cy.zoom();
-          const total = cy.nodes().length;
-          // Only hide at low zoom for sufficiently large graphs
-          let threshold = -1;
-          if (total > 100) {
-            if (z < 0.4) threshold = 1.5;
-            else if (z < 0.8) threshold = 0.6;
-            else threshold = -1;
+          const allNodes = cy.nodes();
+          const baseNodes = allNodes.filter(n => !Boolean(n.data('origParent')));
+          const total = baseNodes.length;
+
+          // Reset opacities for base nodes before applying rules
+          allNodes.forEach(n => { if (!n.data('origParent')) { n.style('opacity', 1); } });
+
+          // Respect user preference: when disabled, always show everything
+          if (!getLodEnabled()) {
+            baseNodes.forEach(n => { n.style('display', 'element'); n.style('opacity', 1); });
+            return;
           }
 
-          let shown = 0;
-          cy.nodes().forEach(n => {
-            const score = n.data('score') || 0;
-            const isSelected = selectedNodeId && n.id() === selectedNodeId;
-            const isCollapsedChild = Boolean(n.data('origParent'));
-            const visible = !isCollapsedChild && (threshold < 0 || score >= threshold || isSelected);
-            n.style('display', visible ? 'element' : 'none');
-            if (visible) shown++;
+          // Disable LOD for small graphs or near/full zoom
+          if (total <= 150 || z >= 0.8) {
+            baseNodes.forEach(n => { n.style('display', 'element'); n.style('opacity', 1); });
+            return;
+          }
+
+          const selectedId = selectedNodeId ? String(selectedNodeId) : null;
+          const minVisible = Math.min(80, Math.ceil(total * 0.2));
+          const targetRatio = (z < 0.4) ? 0.25 : 0.6; // low vs mid zoom targets
+          let desiredVisible = Math.max(minVisible, Math.ceil(total * targetRatio));
+
+          // Rank nodes by lod_score (desc)
+          const ranked = baseNodes.map(n => ({ id: n.id(), node: n, score: Number(n.data('lod_score') || 0) }))
+                                  .sort((a, b) => b.score - a.score);
+
+          // Choose visible set
+          const visibleSet = new Set();
+          for (let i = 0; i < ranked.length && visibleSet.size < desiredVisible; i++) {
+            visibleSet.add(ranked[i].id);
+          }
+          if (selectedId) visibleSet.add(selectedId);
+
+          // Medium zoom: keep all displayed, fade out lower-importance nodes
+          if (z >= 0.4 && z < 0.8) {
+            baseNodes.forEach(n => {
+              const isVisible = visibleSet.has(n.id());
+              n.style('display', 'element');
+              n.style('opacity', isVisible ? 1 : 0.25);
+            });
+            return;
+          }
+
+          // Low zoom: hide least important nodes
+          baseNodes.forEach(n => {
+            const isVisible = visibleSet.has(n.id());
+            n.style('opacity', 1);
+            n.style('display', isVisible ? 'element' : 'none');
           });
 
-          // Safety: if nothing would be visible, show all
-          if (shown === 0) {
-            cy.nodes().forEach(n => {
-              if (!n.data('origParent')) n.style('display', 'element');
-            });
+          // Safety: ensure at least minVisible are shown (avoid single-selected trap)
+          const currentlyVisible = baseNodes.filter(n => n.style('display') !== 'none').length;
+          if (currentlyVisible < minVisible) {
+            const toShow = new Set();
+            for (let i = 0; i < Math.min(minVisible, ranked.length); i++) {
+              toShow.add(ranked[i].id);
+            }
+            baseNodes.forEach(n => { if (toShow.has(n.id())) n.style('display', 'element'); });
           }
         }
         cy.on('zoom', applyLOD);
@@ -1174,6 +1252,18 @@
         // Fit
         document.getElementById('btnFit').addEventListener('click', () => cy.fit());
 
+        // LOD toggle wiring
+        (function initLodToggle(){
+          const lodChk = document.getElementById('lodToggle');
+          if (lodChk) {
+            lodChk.checked = getLodEnabled();
+            lodChk.addEventListener('change', () => {
+              setLodEnabled(!!lodChk.checked);
+              try { applyLOD(); } catch {}
+            });
+          }
+        })();
+
         // Language toggle
         const langSel = document.getElementById('langSelect');
         langSel.value = savedLang;
@@ -1192,6 +1282,8 @@
           cy.fit();
           // Recompute edge path colors based on current graph
           try { recomputePriorityPaths(); } catch {}
+          // Re-apply LOD and filters after reload
+          try { applyLOD(); applySearchAndFilter(); } catch {}
         });
 
         document.getElementById('btnTrStats').addEventListener('click', async ()=>{
@@ -1443,7 +1535,7 @@
           } else {
             sidebar.style.display = '';
           }
-          setTimeout(() => cy.resize(), 0);
+          setTimeout(() => { try { cy.resize(); applyLOD(); applySearchAndFilter(); } catch {} }, 0);
         }
         toggleBtn.addEventListener('click', () => {
           const hidden = localStorage.getItem('sidebarHidden') === '1';
