@@ -68,44 +68,44 @@
           <div id="taskPanel" class="space-y-4">
           <h2 class="font-medium">Task Panel</h2>
           <div>
-            <label class="block text-sm text-slate-600">Selected Node Title</label>
+            <label class="block text-sm font-semibold text-slate-600">Selected Node Title</label>
             <div id="selNodeTitle" contenteditable="true" spellcheck="false" class="text-sm text-slate-800 truncate border rounded px-2 py-1 focus:outline-none focus:ring focus:ring-slate-300">—</div>
           </div>
           <div>
-            <label class="block text-sm text-slate-600">Translated Title (preview)</label>
+            <label class="block text-sm font-semibold text-slate-600">Translated Title (preview)</label>
             <div class="flex gap-2 items-center">
               <input id="selNodeTitleTranslated" class="flex-1 text-sm border rounded px-2 py-1" placeholder="—" readonly />
               <button id="btnRefreshTranslation" class="px-2 py-1 text-xs bg-slate-200 rounded">Refresh</button>
             </div>
           </div>
           <div>
-            <label class="block text-sm text-slate-600">Selected Node ID</label>
+            <label class="block text-sm font-semibold text-slate-600">Selected Node ID</label>
             <div id="selNode" class="text-sm font-mono text-slate-800">—</div>
           </div>
           <div>
-            <label class="block text-sm text-slate-600">Created At</label>
+            <label class="block text-sm font-semibold text-slate-600">Created At</label>
             <div id="createdAt" class="text-sm text-slate-800">—</div>
           </div>
           <div>
-            <label class="block text-sm">Status</label>
-            <select id="statusSelect" class="w-full border rounded p-2">
-              <option value="planned">todo</option>
-              <option value="in-progress">in-progress</option>
-              <option value="done">done</option>
-              <option value="blocked">blocked</option>
-            </select>
+            <label class="block text-sm font-semibold">Status</label>
+            <div id="statusRadios" role="radiogroup" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <button type="button" role="radio" aria-checked="false" data-value="planned" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">todo</button>
+              <button type="button" role="radio" aria-checked="false" data-value="in-progress" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">in-progress</button>
+              <button type="button" role="radio" aria-checked="false" data-value="done" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">done</button>
+              <button type="button" role="radio" aria-checked="false" data-value="blocked" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">blocked</button>
+            </div>
           </div>
           <div>
-            <label class="block text-sm">Priority</label>
-            <select id="prioritySelect" class="w-full border rounded p-2">
-              <option value="low">low</option>
-              <option value="normal" selected>normal</option>
-              <option value="high">high</option>
-              <option value="critical">critical</option>
-            </select>
+            <label class="block text-sm font-semibold">Priority</label>
+            <div id="priorityRadios" role="radiogroup" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <button type="button" role="radio" aria-checked="false" data-value="low" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">low</button>
+              <button type="button" role="radio" aria-checked="false" data-value="normal" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">normal</button>
+              <button type="button" role="radio" aria-checked="false" data-value="high" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">high</button>
+              <button type="button" role="radio" aria-checked="false" data-value="critical" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">critical</button>
+            </div>
           </div>
           <div>
-            <label class="block text-sm text-slate-600">Descendants (via edges)</label>
+            <label class="block text-sm font-semibold text-slate-600">Descendants (via edges)</label>
             <div id="descCount" class="text-sm text-slate-800">0</div>
           </div>
           <div>
@@ -528,8 +528,8 @@
           if (createdEl) createdEl.textContent = formatDate(evt.target.data('created_at'));
           const delBtn = document.getElementById('btnDeleteNodePanel');
           if (delBtn) delBtn.classList.remove('hidden');
-          const prSel = document.getElementById('prioritySelect');
-          if (prSel) prSel.value = String(evt.target.data('priority') || 'normal');
+          const prGrp = document.getElementById('priorityRadios');
+          if (prGrp) setRadioGroupValue(prGrp, String(evt.target.data('priority') || 'normal'));
           // compute descendants via outgoing edges (reachability)
           const start = cy.getElementById(selectedNodeId);
           let count = 0;
@@ -548,8 +548,8 @@
           if (dc) dc.textContent = String(count);
           selectedEdgeId = null;
           // set status select to node status
-          const sel = document.getElementById('statusSelect');
-          if (sel) sel.value = String(evt.target.data('status') || 'planned');
+          const stGrp = document.getElementById('statusRadios');
+          if (stGrp) setRadioGroupValue(stGrp, String(evt.target.data('status') || 'planned'));
           await refreshLists(selectedNodeId);
         });
         cy.on('tap', 'edge', (evt) => {
@@ -618,27 +618,59 @@
           await refreshLists(selectedNodeId);
         });
 
-        // Status selector change handler
-        document.getElementById('statusSelect').addEventListener('change', async (e) => {
-          if (!selectedNodeId) return;
-          const value = e.target.value;
-          const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { status: value });
-          const n = cy.getElementById(selectedNodeId);
-          n.data('status', resp.data.status);
-          recomputePriorityPaths();
-          // Refresh status history after change
-          try { await refreshLists(selectedNodeId); } catch {}
-        });
-
-        // Priority change handler
-        document.getElementById('prioritySelect').addEventListener('change', async (e) => {
-          if (!selectedNodeId) return;
-          const value = e.target.value;
-          const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { priority: value });
-          const n = cy.getElementById(selectedNodeId);
-          n.data('priority', resp.data.priority || value);
-          recomputePriorityPaths();
-        });
+        // Radio groups helpers and handlers
+        function setRadioGroupValue(groupEl, value){
+          if (!groupEl) return;
+          const buttons = Array.from(groupEl.querySelectorAll('button[data-value]'));
+          buttons.forEach(btn => {
+            const isActive = String(btn.dataset.value) === String(value);
+            btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+            btn.className = 'px-2 py-1 text-xs rounded w-full ' + (isActive ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-800');
+          });
+        }
+        (function wireStatusRadios(){
+          const grp = document.getElementById('statusRadios');
+          if (!grp) return;
+          grp.addEventListener('click', async (e) => {
+            const btn = e.target && e.target.closest ? e.target.closest('button[data-value]') : null;
+            if (!btn) return;
+            if (!selectedNodeId) return;
+            const value = String(btn.dataset.value || '');
+            if (!value) return;
+            if (btn.getAttribute('aria-checked') === 'true') { setRadioGroupValue(grp, value); return; }
+            const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { status: value });
+            const n = cy.getElementById(selectedNodeId);
+            if (n && n.nonempty()) n.data('status', resp.data.status || value);
+            setRadioGroupValue(grp, resp.data.status || value);
+            recomputePriorityPaths();
+            try { await refreshLists(selectedNodeId); } catch {}
+          });
+          grp.addEventListener('keydown', (e) => {
+            const k = (e.key || '').toLowerCase();
+            if (k === 'enter' || k === ' ') { const f = document.activeElement && document.activeElement.closest && document.activeElement.closest('button[data-value]'); if (f) { e.preventDefault(); f.click(); } }
+          });
+        })();
+        (function wirePriorityRadios(){
+          const grp = document.getElementById('priorityRadios');
+          if (!grp) return;
+          grp.addEventListener('click', async (e) => {
+            const btn = e.target && e.target.closest ? e.target.closest('button[data-value]') : null;
+            if (!btn) return;
+            if (!selectedNodeId) return;
+            const value = String(btn.dataset.value || '');
+            if (!value) return;
+            if (btn.getAttribute('aria-checked') === 'true') { setRadioGroupValue(grp, value); return; }
+            const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { priority: value });
+            const n = cy.getElementById(selectedNodeId);
+            if (n && n.nonempty()) n.data('priority', resp.data.priority || value);
+            setRadioGroupValue(grp, resp.data.priority || value);
+            recomputePriorityPaths();
+          });
+          grp.addEventListener('keydown', (e) => {
+            const k = (e.key || '').toLowerCase();
+            if (k === 'enter' || k === ' ') { const f = document.activeElement && document.activeElement.closest && document.activeElement.closest('button[data-value]'); if (f) { e.preventDefault(); f.click(); } }
+          });
+        })();
 
         document.getElementById('costForm').addEventListener('submit', async (e) => {
           e.preventDefault();
