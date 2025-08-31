@@ -438,6 +438,19 @@
             });
           }
         }
+        // Keep edge data flags in sync with target node's status/priority for direct selectors
+        function refreshEdgeTargetFlags(nodeId){
+          const nid = String(nodeId || '');
+          if (!nid) return;
+          const n = cy.getElementById(nid);
+          if (!n || !n.nonempty()) return;
+          const status = String(n.data('status') || 'planned');
+          const priority = String(n.data('priority') || 'normal');
+          cy.edges(`[target = "${nid}"]`).forEach(e => {
+            e.data('targetStatus', status);
+            e.data('targetPriority', priority);
+          });
+        }
         // initial compute
         recomputePriorityPaths();
 
@@ -589,7 +602,8 @@
         function addEdgeToCy(e) {
           const tgt = cy.getElementById(String(e.target_node_id));
           const tp = tgt && tgt.nonempty() ? (tgt.data('priority') || 'normal') : 'normal';
-          cy.add({ group: 'edges', data: { id: e.id, source: e.source_node_id, target: e.target_node_id, type: e.type, weight: e.weight, targetPriority: tp } });
+          const ts = tgt && tgt.nonempty() ? (tgt.data('status') || 'planned') : 'planned';
+          cy.add({ group: 'edges', data: { id: e.id, source: e.source_node_id, target: e.target_node_id, type: e.type, weight: e.weight, targetPriority: tp, targetStatus: ts } });
           // recompute descendants sizes quickly
           const nodes = cy.nodes();
           const adj = new Map();
@@ -673,6 +687,7 @@
             const n = cy.getElementById(selectedNodeId);
             if (n && n.nonempty()) n.data('status', resp.data.status || value);
             setRadioGroupValue(grp, resp.data.status || value);
+            refreshEdgeTargetFlags(selectedNodeId);
             recomputePriorityPaths();
             try { await refreshLists(selectedNodeId); } catch {}
           });
@@ -695,6 +710,7 @@
             const n = cy.getElementById(selectedNodeId);
             if (n && n.nonempty()) n.data('priority', resp.data.priority || value);
             setRadioGroupValue(grp, resp.data.priority || value);
+            refreshEdgeTargetFlags(selectedNodeId);
             recomputePriorityPaths();
           });
           grp.addEventListener('keydown', (e) => {
