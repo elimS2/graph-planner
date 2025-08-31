@@ -338,11 +338,17 @@
         } catch { return localStorage.getItem('displayLang') || ''; }
       }
       function isShowHiddenEnabled(){
+        // Prefer persisted value when available to avoid race with late checkbox wiring
+        try {
+          const persisted = localStorage.getItem('showHidden');
+          if (persisted === '1') return true;
+          if (persisted === '0') return false;
+        } catch {}
         try {
           const s = document.getElementById('settingsShowHiddenToggle');
           if (s) return !!s.checked;
         } catch {}
-        return localStorage.getItem('showHidden') === '1';
+        return false;
       }
 
       async function apiMe(){
