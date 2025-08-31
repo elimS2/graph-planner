@@ -619,13 +619,44 @@
         });
 
         // Radio groups helpers and handlers
+        function getStatusPalette(val){
+          switch(String(val)){
+            case 'planned': return { solid: '#38bdf8', soft: '#f0f9ff', border: '#0ea5e9' }; // sky-400 / sky-50 / sky-500
+            case 'in-progress': return { solid: '#f59e0b', soft: '#fffbeb', border: '#d97706' }; // amber-500 / amber-50 / amber-600
+            case 'done': return { solid: '#22c55e', soft: '#ecfdf5', border: '#16a34a' }; // emerald-500 / emerald-50 / emerald-600
+            case 'blocked': return { solid: '#ef4444', soft: '#fef2f2', border: '#dc2626' }; // red-500 / red-50 / red-600
+            default: return { solid: '#64748b', soft: '#e2e8f0', border: '#475569' }; // slate-500 / slate-200 / slate-600
+          }
+        }
+        function getPriorityPalette(val){
+          switch(String(val)){
+            case 'low': return { solid: '#94a3b8', soft: '#e2e8f0', border: '#64748b' }; // slate-400 / slate-200 / slate-500
+            case 'normal': return { solid: '#64748b', soft: '#e2e8f0', border: '#475569' }; // slate-500 / slate-200 / slate-600
+            case 'high': return { solid: '#f59e0b', soft: '#fffbeb', border: '#d97706' }; // amber-500 / amber-50 / amber-600
+            case 'critical': return { solid: '#ef4444', soft: '#fef2f2', border: '#dc2626' }; // red-500 / red-50 / red-600
+            default: return { solid: '#64748b', soft: '#e2e8f0', border: '#475569' };
+          }
+        }
+        function getPaletteFor(groupEl, val){
+          const id = (groupEl && groupEl.id) || '';
+          if (id === 'statusRadios') return getStatusPalette(val);
+          if (id === 'priorityRadios') return getPriorityPalette(val);
+          return { solid: '#64748b', soft: '#e2e8f0' };
+        }
         function setRadioGroupValue(groupEl, value){
           if (!groupEl) return;
           const buttons = Array.from(groupEl.querySelectorAll('button[data-value]'));
           buttons.forEach(btn => {
-            const isActive = String(btn.dataset.value) === String(value);
+            const btnVal = String(btn.dataset.value || '');
+            const isActive = btnVal === String(value);
+            const pal = getPaletteFor(groupEl, btnVal);
             btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
-            btn.className = 'px-2 py-1 text-xs rounded w-full ' + (isActive ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-800');
+            btn.className = 'px-2 py-1 text-xs rounded w-full transition-colors';
+            btn.style.backgroundColor = isActive ? pal.solid : pal.soft;
+            btn.style.color = isActive ? '#ffffff' : pal.solid;
+            btn.style.borderStyle = 'solid';
+            btn.style.borderWidth = isActive ? '2px' : '0';
+            btn.style.borderColor = isActive ? pal.border : 'transparent';
           });
         }
         (function wireStatusRadios(){
