@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask
 
@@ -57,6 +58,12 @@ def create_app(config_name: str | None = None) -> Flask:
     # Error handlers
     register_error_handlers(app)
     register_cli(app)
+
+    # Server boot timestamp (UTC) for health/uptime reporting
+    try:
+        app.config["SERVER_STARTED_AT"] = datetime.utcnow().isoformat() + "Z"
+    except Exception:
+        pass
 
     return app
 

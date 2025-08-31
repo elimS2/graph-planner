@@ -8,6 +8,30 @@
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <div class="max-w-6xl mx-auto p-6 space-y-6">
+      <section class="bg-white rounded shadow p-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 class="text-xl font-semibold">Server Controls</h1>
+            <p class="text-sm text-slate-600">Development-only utilities</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btnRestartTop" class="px-3 py-2 text-sm rounded bg-rose-600 text-white hover:bg-rose-700">Restart Server</button>
+            <a class="text-blue-600 hover:underline text-sm" href="/api/v1/health" target="_blank" rel="noreferrer">Health</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-white rounded shadow p-4">
+        <div class="font-semibold mb-2">Server Info</div>
+        <div class="grid grid-cols-2 gap-2 text-sm">
+          <div>PID: <span id="sv-pid">—</span></div>
+          <div>Uptime: <span id="sv-uptime">—</span></div>
+          <div>Started: <span id="sv-start">—</span></div>
+          <div>Current: <span id="sv-now">—</span></div>
+          <div class="col-span-2">Last Restart: <span id="sv-last-restart">—</span></div>
+        </div>
+      </section>
+
       <header class="flex items-center justify-between">
         <h1 class="text-2xl font-semibold">Settings</h1>
         <nav class="flex items-center gap-4 text-sm">
@@ -22,6 +46,7 @@
             <p class="text-sm text-slate-600">Source: {{ source }}</p>
           </div>
           <div class="flex items-center gap-2">
+            <button id="btnRestart" class="px-3 py-2 text-sm rounded bg-rose-600 text-white hover:bg-rose-700">Restart Server</button>
             <input id="filterBox" type="text" placeholder="Filter by key..." class="border rounded px-3 py-2" />
           </div>
         </div>
@@ -69,6 +94,24 @@
 
     <script>
       (function init(){
+        const showBanner = (msg, type) => {
+          let el = document.getElementById('statusBanner');
+          if (!el){
+            el = document.createElement('div');
+            el.id = 'statusBanner';
+            el.className = 'fixed top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded shadow';
+            document.body.appendChild(el);
+          }
+          const color = type === 'error' ? 'bg-rose-100 text-rose-800 border border-rose-200' : (type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-sky-100 text-sky-800 border border-sky-200');
+          el.className = 'fixed top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded shadow ' + color;
+          el.textContent = msg;
+          el.style.display = '';
+        };
+        const hideBanner = () => {
+          const el = document.getElementById('statusBanner');
+          if (el){ el.style.display = 'none'; }
+        };
+
         const table = document.getElementById('envTable');
         // initialize masked values
         table.querySelectorAll('tr').forEach(row => {
@@ -117,6 +160,157 @@
             row.style.display = (!q || k.includes(q)) ? '' : 'none';
           });
         });
+
+        // restart buttons
+        async function doRestart(){
+          if (!confirm('Restart the server now?')) return;
+          showBanner('Restarting server...', 'info');
+          try {
+            // capture current pid
+            let oldPid = null;
+            try {
+              const h = await fetch('/api/v1/health', { cache: 'no-store' }).then(r=>r.json());
+              oldPid = h && h.data && h.data.pid ? Number(h.data.pid) : null;
+            } catch {}
+
+            const resp = await fetch('/api/v1/settings/restart', { method: 'POST' });
+            if (!resp.ok){
+              const t = await resp.text();
+              showBanner('Failed to restart: ' + String(t||resp.status), 'error');
+              return;
+            }
+            const jr = await resp.json();
+            const opId = jr && jr.data && jr.data.op_id ? String(jr.data.op_id) : '';
+            if (opId){ try { localStorage.setItem('lastRestartOpId', opId); } catch {} }
+            
+            const deadline = Date.now() + 45000;
+            // wait for DOWN
+            const waitDown = async () => {
+              while (Date.now() < deadline) {
+                try { const r = await fetch('/api/v1/health', { cache: 'no-store' }); if (!r.ok) break; } catch { break; }
+                await new Promise(rs=>setTimeout(rs, 600));
+              }
+            };
+            await waitDown();
+
+            // wait for UP with pid change if possible
+            const waitUp = async () => {
+              while (Date.now() < deadline) {
+                if (opId){
+                  try {
+                    const s = await fetch('/api/v1/settings/restart/status/' + opId, { cache: 'no-store' }).then(r=>r.json());
+                    if (s && s.data && s.data.status === 'restarted'){
+                      const pb = (s.data.pid_before != null) ? String(s.data.pid_before) : '';
+                      const pa = (s.data.pid_after != null) ? String(s.data.pid_after) : '';
+                      const hint = (pb && pa) ? ` (PID ${pb}\u2192${pa})` : '';
+                      showBanner('Server restarted' + hint + '. Reloading...', 'success');
+                      setTimeout(()=>location.reload(), 800);
+                      return true;
+                    }
+                    if (s && s.data && s.data.status === 'port_still_in_use'){ showBanner('Port still in use. Check logs.', 'error'); return false; }
+                  } catch {}
+                }
+                try {
+                  const r = await fetch('/api/v1/health', { cache: 'no-store' });
+                  if (r.ok){
+                    const j = await r.json();
+                    const newPid = j && j.data && j.data.pid ? Number(j.data.pid) : null;
+                    if (!oldPid || (newPid && newPid !== oldPid)){
+                      const hint = (oldPid && newPid) ? ` (PID ${oldPid}\u2192${newPid})` : '';
+                      showBanner('Server restarted' + hint + '. Reloading...', 'success');
+                      setTimeout(()=>location.reload(), 800);
+                      return true;
+                    }
+                  }
+                } catch {}
+                await new Promise(rs=>setTimeout(rs, 1000));
+              }
+              return false;
+            };
+            const up = await waitUp();
+            if (!up){ showBanner('Server did not come back in time. Check logs.', 'error'); return; }
+            showBanner('Server restarted successfully. Reloading...', 'success');
+            setTimeout(() => { window.location.reload(); }, 800);
+          } catch (e){
+            showBanner('Error: ' + String(e), 'error');
+          }
+        }
+        const btnRestart = document.getElementById('btnRestart');
+        if (btnRestart){ btnRestart.addEventListener('click', doRestart); }
+        const btnRestartTop = document.getElementById('btnRestartTop');
+        if (btnRestartTop){ btnRestartTop.addEventListener('click', doRestart); }
+
+        // Load server info
+        (async function loadServerInfo(){
+          try {
+            const r = await fetch('/api/v1/health', { cache: 'no-store' });
+            if (!r.ok) return;
+            const j = await r.json();
+            const d = j && j.data ? j.data : {};
+            const pidEl = document.getElementById('sv-pid'); if (pidEl) pidEl.textContent = (d.pid != null ? String(d.pid) : '—');
+            const stEl = document.getElementById('sv-start');
+            const nowEl = document.getElementById('sv-now');
+            const upEl = document.getElementById('sv-uptime');
+            const lrEl = document.getElementById('sv-last-restart');
+            const fmt = (iso) => {
+              if (!iso) return '—';
+              try {
+                const dt = new Date(iso);
+                const mm = String(dt.getUTCMonth()+1).padStart(2,'0');
+                const dd = String(dt.getUTCDate()).padStart(2,'0');
+                const HH = String(dt.getUTCHours()).padStart(2,'0');
+                const MM = String(dt.getUTCMinutes()).padStart(2,'0');
+                const SS = String(dt.getUTCSeconds()).padStart(2,'0');
+                return `${mm}-${dd} ${HH}:${MM}:${SS}`;
+              } catch { return String(iso); }
+            };
+            // Initial values and ticker
+            const startedIso = d.started || null;
+            if (stEl) stEl.textContent = fmt(startedIso);
+            (function startTicker(){
+              const startedTs = startedIso ? Date.parse(startedIso) : null;
+              function formatNow(ts){
+                const dt = new Date(ts);
+                const mm = String(dt.getUTCMonth()+1).padStart(2,'0');
+                const dd = String(dt.getUTCDate()).padStart(2,'0');
+                const HH = String(dt.getUTCHours()).padStart(2,'0');
+                const MM = String(dt.getUTCMinutes()).padStart(2,'0');
+                const SS = String(dt.getUTCSeconds()).padStart(2,'0');
+                return `${mm}-${dd} ${HH}:${MM}:${SS}`;
+              }
+              function tick(){
+                const nowTs = Date.now();
+                if (nowEl) nowEl.textContent = formatNow(nowTs);
+                if (upEl){
+                  if (startedTs){
+                    const s = Math.max(0, Math.floor((nowTs - startedTs)/1000));
+                    const days = Math.floor(s/86400);
+                    const h = Math.floor((s%86400)/3600).toString().padStart(2,'0');
+                    const m = Math.floor((s%3600)/60).toString().padStart(2,'0');
+                    const sec = Math.floor(s%60).toString().padStart(2,'0');
+                    upEl.textContent = `${days} days, ${h}:${m}:${sec}`;
+                  } else {
+                    upEl.textContent = '—';
+                  }
+                }
+              }
+              tick();
+              setInterval(tick, 1000);
+            })();
+            try {
+              const opId = localStorage.getItem('lastRestartOpId') || '';
+              if (opId && lrEl){
+                const s = await fetch('/api/v1/settings/restart/status/' + opId, { cache: 'no-store' }).then(r=>r.json()).catch(()=>null);
+                const data = s && s.data;
+                if (data && data.status === 'restarted' && (data.pid_before!=null || data.pid_after!=null)){
+                  const pb = data.pid_before!=null ? String(data.pid_before) : '';
+                  const pa = data.pid_after!=null ? String(data.pid_after) : '';
+                  lrEl.textContent = (pb && pa) ? `PID ${pb}→${pa}` : '—';
+                }
+              }
+            } catch {}
+          } catch {}
+        })();
       })();
     </script>
   </body>

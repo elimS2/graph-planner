@@ -54,7 +54,32 @@ def health():
         pid = os.getpid()
     except Exception:
         pid = None
-    return jsonify({"data": {"status": "ok", "pid": pid}})
+    # Uptime info based on app boot time (config) as a stable reference
+    started_iso = None
+    now_iso = None
+    uptime_seconds = None
+    try:
+        import datetime as _dt
+        started_iso = current_app.config.get("SERVER_STARTED_AT")
+        now_dt = _dt.datetime.utcnow()
+        now_iso = now_dt.isoformat() + "Z"
+        if started_iso:
+            try:
+                st = _dt.datetime.fromisoformat(started_iso.replace("Z", "+00:00"))
+                uptime_seconds = int((now_dt - st).total_seconds())
+            except Exception:
+                uptime_seconds = None
+    except Exception:
+        pass
+    return jsonify({
+        "data": {
+            "status": "ok",
+            "pid": pid,
+            "started": started_iso,
+            "now": now_iso,
+            "uptime_seconds": uptime_seconds,
+        }
+    })
 
 
 # Projects CRUD

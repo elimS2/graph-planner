@@ -155,21 +155,47 @@
           <div id="settingsPanel" class="space-y-3 hidden">
             <div class="flex items-center justify-between">
               <h3 class="font-medium">Settings</h3>
-              <span id="settingsSource" class="text-xs text-slate-500"></span>
+              <div class="flex items-center gap-2">
+              </div>
             </div>
-            <input id="settingsFilter" type="text" placeholder="Filter by key..." class="w-full border rounded px-2 py-1" />
-            <div id="settingsFallbackAlert" class="hidden text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-2"></div>
-            <div class="overflow-auto rounded border">
-              <table class="min-w-full text-sm">
-                <thead class="bg-slate-100 text-slate-700">
-                  <tr>
-                    <th class="text-left px-3 py-2 font-medium">Key</th>
-                    <th class="text-left px-3 py-2 font-medium">Value</th>
-                    <th class="text-left px-3 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="settingsTable" class="divide-y"></tbody>
-              </table>
+            <div id="serverInfo" class="rounded border p-3 text-sm bg-white">
+              <div class="font-semibold mb-2">Server Info</div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="server-info-row">PID: <span id="server-pid">—</span></div>
+                <div class="server-info-row">Uptime: <span id="server-uptime">—</span></div>
+                <div class="server-info-row">Started: <span id="server-start-time">—</span></div>
+                <div class="server-info-row">Current: <span id="server-current-time">—</span></div>
+                <div class="server-info-row col-span-2">Last Restart: <span id="server-last-restart">—</span></div>
+                <div class="server-info-row col-span-2">
+                  <button id="btnRestartInline" class="px-3 py-1 text-xs rounded bg-rose-600 text-white">Restart Server</button>
+                </div>
+                <div class="server-info-row col-span-2">
+                  <a href="https://github.com/elimS2" target="_blank" class="inline-flex items-center gap-2 text-blue-600 hover:underline">
+                    <span class="github-text">GitHub: elimS2</span>
+                    <img class="github-avatar rounded-full" src="https://github.com/elimS2.png?size=50" alt="elimS2 avatar" width="25" height="25" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.display='none'">
+                  </a>
+                </div>
+              </div>
+            </div>
+            <div id="envBlock" class="rounded border p-3 bg-white space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="font-semibold">.env</div>
+                <span id="settingsSource" class="text-xs text-slate-500"></span>
+              </div>
+              <input id="settingsFilter" type="text" placeholder="Filter by key..." class="w-full border rounded px-2 py-1" />
+              <div id="settingsFallbackAlert" class="hidden text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-2"></div>
+              <div class="overflow-auto rounded border">
+                <table class="min-w-full text-sm">
+                  <thead class="bg-slate-100 text-slate-700">
+                    <tr>
+                      <th class="text-left px-3 py-2 font-medium">Key</th>
+                      <th class="text-left px-3 py-2 font-medium">Value</th>
+                      <th class="text-left px-3 py-2 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="settingsTable" class="divide-y"></tbody>
+                </table>
+              </div>
             </div>
           </div>
         </aside>
@@ -1311,6 +1337,138 @@
                 tr.style.display = (!q || k.includes(q)) ? '' : 'none';
               });
             });
+
+            // restart button wiring inside project settings panel
+            (function wireRestart(){
+              function showBanner(msg, type){
+                let el = document.getElementById('statusBanner');
+                if (!el){ el = document.createElement('div'); el.id = 'statusBanner'; el.className = 'fixed top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded shadow text-sm'; document.body.appendChild(el); }
+                const color = type === 'error' ? 'bg-rose-100 text-rose-800 border border-rose-200' : (type === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-sky-100 text-sky-800 border border-sky-200');
+                el.className = 'fixed top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded shadow text-sm ' + color;
+                el.textContent = msg;
+                el.style.display = '';
+              }
+              const btn = document.getElementById('btnRestartInline');
+              if (!btn) return;
+              btn.addEventListener('click', async () => {
+                if (!confirm('Restart the server now?')) return;
+                showBanner('Restarting server...', 'info');
+                try {
+                  // capture current pid
+                  let oldPid = null;
+                  try { const hh = await fetch('/api/v1/health', { cache: 'no-store' }).then(r=>r.json()); oldPid = hh && hh.data && hh.data.pid ? Number(hh.data.pid) : null; } catch {}
+                  const resp = await fetch('/api/v1/settings/restart', { method: 'POST' });
+                  if (!resp.ok){ const t = await resp.text(); showBanner('Failed to restart: ' + String(t||resp.status), 'error'); return; }
+                  const jr = await resp.json();
+                  const opId = jr && jr.data && jr.data.op_id ? String(jr.data.op_id) : '';
+                  if (opId){ try { localStorage.setItem('lastRestartOpId', opId); } catch {} }
+                  const deadline = Date.now() + 45000;
+                  // wait for DOWN
+                  while (Date.now() < deadline) {
+                    try { const r = await fetch('/api/v1/health', { cache: 'no-store' }); if (!r.ok) break; } catch { break; }
+                    await new Promise(rs=>setTimeout(rs, 600));
+                  }
+                  // wait for UP and pid change
+                  while (Date.now() < deadline) {
+                    if (opId){
+                      try {
+                        const s = await fetch('/api/v1/settings/restart/status/' + opId, { cache: 'no-store' }).then(r=>r.json());
+                        if (s && s.data && s.data.status === 'restarted'){
+                          const pb = (s.data.pid_before != null) ? String(s.data.pid_before) : '';
+                          const pa = (s.data.pid_after != null) ? String(s.data.pid_after) : '';
+                          const hint = (pb && pa) ? ` (PID ${pb}\u2192${pa})` : '';
+                          showBanner('Server restarted' + hint + '. Reloading...', 'success');
+                          setTimeout(()=>location.reload(), 800);
+                          return;
+                        }
+                        if (s && s.data && s.data.status === 'port_still_in_use'){ showBanner('Port still in use. Check logs.', 'error'); return; }
+                      } catch {}
+                    }
+                    try {
+                      const r = await fetch('/api/v1/health', { cache: 'no-store' });
+                      if (r.ok){ const j = await r.json(); const np = j && j.data && j.data.pid ? Number(j.data.pid) : null; if (!oldPid || (np && np !== oldPid)) { const hint=(oldPid&&np)?` (PID ${oldPid}\u2192${np})`:''; showBanner('Server restarted'+hint+'. Reloading...', 'success'); setTimeout(()=>location.reload(), 800); return; } }
+                    } catch {}
+                    await new Promise(rs=>setTimeout(rs, 1000));
+                  }
+                  showBanner('Server did not come back in time. Check logs.', 'error');
+                } catch (e){ showBanner('Error: ' + String(e), 'error'); }
+              });
+            })();
+
+            // server info loader
+            (async function loadServerInfo(){
+              try {
+                const r = await fetch('/api/v1/health', { cache: 'no-store' });
+                if (!r.ok) return;
+                const j = await r.json();
+                const d = j && j.data ? j.data : {};
+                const pidEl = document.getElementById('server-pid'); if (pidEl) pidEl.textContent = (d.pid != null ? String(d.pid) : '—');
+                const stEl = document.getElementById('server-start-time');
+                const nowEl = document.getElementById('server-current-time');
+                const upEl = document.getElementById('server-uptime');
+                const lrEl = document.getElementById('server-last-restart');
+                const fmt = (iso) => {
+                  if (!iso) return '—';
+                  try {
+                    const dt = new Date(iso);
+                    const mm = String(dt.getUTCMonth()+1).padStart(2,'0');
+                    const dd = String(dt.getUTCDate()).padStart(2,'0');
+                    const HH = String(dt.getUTCHours()).padStart(2,'0');
+                    const MM = String(dt.getUTCMinutes()).padStart(2,'0');
+                    const SS = String(dt.getUTCSeconds()).padStart(2,'0');
+                    return `${mm}-${dd} ${HH}:${MM}:${SS}`;
+                  } catch { return String(iso); }
+                };
+                // Set initial values
+                const startedIso = d.started || null;
+                if (stEl) stEl.textContent = fmt(startedIso);
+                // Ticker to update Current and Uptime every second
+                (function startTicker(){
+                  const startedTs = startedIso ? Date.parse(startedIso) : null;
+                  function formatNow(ts){
+                    const dt = new Date(ts);
+                    const mm = String(dt.getUTCMonth()+1).padStart(2,'0');
+                    const dd = String(dt.getUTCDate()).padStart(2,'0');
+                    const HH = String(dt.getUTCHours()).padStart(2,'0');
+                    const MM = String(dt.getUTCMinutes()).padStart(2,'0');
+                    const SS = String(dt.getUTCSeconds()).padStart(2,'0');
+                    return `${mm}-${dd} ${HH}:${MM}:${SS}`;
+                  }
+                  function tick(){
+                    const nowTs = Date.now();
+                    if (nowEl) nowEl.textContent = formatNow(nowTs);
+                    if (upEl){
+                      if (startedTs){
+                        const s = Math.max(0, Math.floor((nowTs - startedTs)/1000));
+                        const days = Math.floor(s/86400);
+                        const h = Math.floor((s%86400)/3600).toString().padStart(2,'0');
+                        const m = Math.floor((s%3600)/60).toString().padStart(2,'0');
+                        const sec = Math.floor(s%60).toString().padStart(2,'0');
+                        upEl.textContent = `${days} days, ${h}:${m}:${sec}`;
+                      } else {
+                        upEl.textContent = '—';
+                      }
+                    }
+                  }
+                  tick();
+                  setInterval(tick, 1000);
+                })();
+                
+                // Last restart info using opId from localStorage
+                try {
+                  const opId = localStorage.getItem('lastRestartOpId') || '';
+                  if (opId && lrEl){
+                    const s = await fetch('/api/v1/settings/restart/status/' + opId, { cache: 'no-store' }).then(r=>r.json()).catch(()=>null);
+                    const data = s && s.data;
+                    if (data && data.status === 'restarted' && (data.pid_before!=null || data.pid_after!=null)){
+                      const pb = data.pid_before!=null ? String(data.pid_before) : '';
+                      const pa = data.pid_after!=null ? String(data.pid_after) : '';
+                      lrEl.textContent = (pb && pa) ? `PID ${pb}→${pa}` : '—';
+                    }
+                  }
+                } catch {}
+              } catch {}
+            })();
             settingsLoaded = true;
           } catch (e) {
             const tbody = document.getElementById('settingsTable');
