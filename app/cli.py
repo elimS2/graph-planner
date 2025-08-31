@@ -109,6 +109,20 @@ def register_cli(app: Flask) -> None:
         db.create_all()
         click.echo("Upgrade complete")
 
+    @app.cli.command("upgrade-status-change")
+    def upgrade_status_change() -> None:
+        """Ensure legacy status_change table has required columns (created_at, updated_at)."""
+        engine = db.get_engine()
+        with engine.connect() as conn:
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(status_change)"))]
+            if "created_at" not in cols:
+                conn.execute(text("ALTER TABLE status_change ADD COLUMN created_at TEXT"))
+                click.echo("Added status_change.created_at")
+            if "updated_at" not in cols:
+                conn.execute(text("ALTER TABLE status_change ADD COLUMN updated_at TEXT"))
+                click.echo("Added status_change.updated_at")
+        click.echo("StatusChange table upgrade complete")
+
     @app.cli.command("translate-project")
     @click.option("--project", "project_id", required=True, help="Project ID")
     @click.option("--lang", default="en", help="Target language code, e.g., en")

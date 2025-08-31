@@ -565,6 +565,8 @@
           const n = cy.getElementById(selectedNodeId);
           n.data('status', resp.data.status);
           recomputePriorityPaths();
+          // Refresh status history after change
+          try { await refreshLists(selectedNodeId); } catch {}
         });
 
         // Priority change handler
