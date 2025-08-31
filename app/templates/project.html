@@ -38,20 +38,11 @@
             <button id="btnCollapse" class="px-3 py-1 bg-fuchsia-600 text-white rounded">Collapse</button>
             <button id="btnExpand" class="px-3 py-1 bg-fuchsia-500 text-white rounded">Expand</button>
             <button id="btnFit" class="px-3 py-1 bg-slate-600 text-white rounded">Fit</button>
-            <button id="btnExportJSON" class="px-3 py-1 bg-slate-700 text-white rounded">Export JSON</button>
-            <label class="px-3 py-1 bg-slate-700 text-white rounded cursor-pointer">Import JSON<input id="importInput" type="file" accept="application/json" class="hidden" /></label>
+            
             <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
-            <select id="langSelect" class="ml-2 border rounded px-2 py-1">
-              <option value="">Original</option>
-              <option value="en">English</option>
-            </select>
-            <label class="ml-2 inline-flex items-center gap-2 text-sm text-slate-700">
-              <input id="showHiddenToggle" type="checkbox" class="align-middle">
-              <span>Show hidden</span>
-            </label>
-            <button id="btnTrStats" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Translation Stats</button>
-            <button id="btnTrRun" class="px-3 py-1 bg-indigo-600 text-white rounded">Run Translate</button>
+            
+            
             <button id="btnResetView" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Reset View</button>
             <button id="btnToggleSidebar" class="ml-auto px-3 py-1 bg-slate-200 text-slate-800 rounded">Toggle Sidebar</button>
           </div>
@@ -180,11 +171,17 @@
               </div>
             </div>
             <div id="lodBlock" class="rounded border p-3 bg-white space-y-2">
-              <label class="inline-flex items-center gap-2">
-                <input id="lodToggle" type="checkbox" class="align-middle">
-                <span>Performance LOD (improve large graph zoom)</span>
-              </label>
-              <p class="text-xs text-slate-500">When enabled, low-importance nodes may fade/hide at low zoom to keep the view responsive. Disable to always show all nodes.</p>
+              <button id="zoomToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="zoomBody">
+                <span>Zoom</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="zoomBody">
+                <label class="inline-flex items-center gap-2">
+                  <input id="lodToggle" type="checkbox" class="align-middle">
+                  <span>Performance LOD (improve large graph zoom)</span>
+                </label>
+                <p class="text-xs text-slate-500">When enabled, low-importance nodes may fade/hide at low zoom to keep the view responsive. Disable to always show all nodes.</p>
+              </div>
             </div>
             <div id="serverInfo" class="rounded border p-3 text-sm bg-white">
               <button id="serverInfoToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="serverInfoBody">
@@ -233,6 +230,59 @@
                 </div>
               </div>
             </div>
+
+            <div id="exportImportBlock" class="rounded border p-3 bg-white space-y-2">
+              <button id="exportImportToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="exportImportBody">
+                <span>Export-Import JSON</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="exportImportBody">
+                <div class="flex flex-wrap gap-2">
+                  <button id="settingsBtnExportJSON" class="px-3 py-1 bg-slate-700 text-white rounded" aria-label="Export project as JSON" title="Export project as JSON">Export JSON</button>
+                  <label class="px-3 py-1 bg-slate-700 text-white rounded cursor-pointer" aria-label="Import project from JSON" title="Import project from JSON">Import JSON
+                    <input id="settingsImportInput" type="file" accept="application/json" class="hidden" />
+                  </label>
+                </div>
+                <p class="text-xs text-slate-500">Export current graph to a JSON file or import nodes from a JSON file. Import appends nodes; edges import is not supported here.</p>
+              </div>
+            </div>
+
+            <div id="visibilityBlock" class="rounded border p-3 bg-white space-y-2">
+              <button id="visibilityToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="visibilityBody">
+                <span>Visibility</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="visibilityBody">
+                <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input id="settingsShowHiddenToggle" type="checkbox" class="align-middle">
+                  <span>Show hidden</span>
+                </label>
+                <p class="text-xs text-slate-500 mt-1">When enabled, nodes marked as hidden are included in the board. Hidden nodes appear faint with dashed borders. Disable to fully hide them from the graph and lists.</p>
+              </div>
+            </div>
+
+            <div id="translationBlock" class="rounded border p-3 bg-white space-y-3">
+              <button id="translationToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="translationBody">
+                <span>Translation</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="translationBody">
+                <div class="flex items-center gap-3 flex-wrap">
+                  <label class="text-sm text-slate-700">Language
+                    <select id="settingsLangSelect" class="ml-2 border rounded px-2 py-1">
+                      <option value="">Original</option>
+                      <option value="en">English</option>
+                    </select>
+                  </label>
+                  <button id="settingsBtnTrStats" class="px-3 py-1 bg-slate-200 text-slate-800 rounded" aria-label="Show translation stats" title="Show translation stats">Translation Stats</button>
+                  <button id="settingsBtnRunTranslate" class="px-3 py-1 bg-indigo-600 text-white rounded" aria-label="Run translation job" title="Run translation job">Run Translate</button>
+                </div>
+                <div id="settingsTranslationFeedback" class="text-xs text-slate-600 space-y-1">
+                  <div id="settingsTrStats" class="whitespace-pre-wrap"></div>
+                  <div id="settingsTrJob" class=""></div>
+                </div>
+              </div>
+            </div>
           </div>
         </aside>
       </div>
@@ -254,6 +304,45 @@
           }).format(d);
           return `${base} (${tz})`;
         } catch { return d.toLocaleString(); }
+      }
+
+      // Toast notifications
+      function showToast(message, type = 'info'){
+        try {
+          let cont = document.getElementById('toastContainer');
+          if (!cont){
+            cont = document.createElement('div');
+            cont.id = 'toastContainer';
+            cont.className = 'fixed top-3 left-1/2 -translate-x-1/2 z-[9999] space-y-2';
+            cont.setAttribute('role','status');
+            cont.setAttribute('aria-live','polite');
+            document.body.appendChild(cont);
+          }
+          const base = 'px-3 py-2 rounded shadow border text-sm';
+          const color = type === 'success' ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : type === 'error' ? 'bg-rose-100 text-rose-800 border-rose-200'
+                        : 'bg-sky-100 text-sky-800 border-sky-200';
+          const el = document.createElement('div');
+          el.className = `${base} ${color}`;
+          el.textContent = String(message || '');
+          cont.appendChild(el);
+          setTimeout(()=>{ try { el.style.transition = 'opacity 200ms'; el.style.opacity = '0'; setTimeout(()=>{ el.remove(); }, 220); } catch {} }, 2200);
+        } catch {}
+      }
+
+      // Preferences helpers
+      function getCurrentLang(){
+        try {
+          const s = document.getElementById('settingsLangSelect');
+          return (s && s.value) || localStorage.getItem('displayLang') || '';
+        } catch { return localStorage.getItem('displayLang') || ''; }
+      }
+      function isShowHiddenEnabled(){
+        try {
+          const s = document.getElementById('settingsShowHiddenToggle');
+          if (s) return !!s.checked;
+        } catch {}
+        return localStorage.getItem('showHidden') === '1';
       }
 
       async function apiMe(){
@@ -305,9 +394,10 @@
       }
 
       async function fetchGraph(lang="") {
-        const showHidden = document.getElementById('showHiddenToggle')?.checked;
+        const showHidden = isShowHiddenEnabled();
         const params = new URLSearchParams();
-        if (lang) params.set('lang', lang);
+        const effLang = lang || getCurrentLang();
+        if (effLang) params.set('lang', effLang);
         if (showHidden) params.set('include_hidden', '1');
         const q = params.toString() ? `?${params.toString()}` : "";
         const [nodesRes, edgesRes] = await Promise.all([
@@ -551,7 +641,7 @@
         let selectedNodeId = null;
         let selectedEdgeId = null;
         async function refreshLists(nodeId) {
-          const lang = (document.getElementById('langSelect')?.value || '');
+          const lang = getCurrentLang();
           const q = lang ? `?lang=${encodeURIComponent(lang)}` : '';
           const [c, t, k] = await Promise.all([
             fetch(`/api/v1/nodes/${nodeId}/comments${q}`).then(r=>r.json()),
@@ -624,7 +714,7 @@
           if (linkEl) linkEl.value = curLink;
           if (linkHint) { if (curLink) linkHint.classList.remove('hidden'); else linkHint.classList.add('hidden'); }
           try {
-            const lang = (document.getElementById('langSelect')?.value || '');
+            const lang = getCurrentLang();
             const out = document.getElementById('selNodeTitleTranslated');
             if (!lang) { if(out) out.value=''; }
             else {
@@ -1265,14 +1355,14 @@
         })();
 
         // Language toggle
-        const langSel = document.getElementById('langSelect');
-        langSel.value = savedLang;
+        const langSel = null; // toolbar lang removed; use Settings control
         async function ensureTranslations(lang){
           if (!lang) return;
           try { await fetch(`/api/v1/projects/${projectId}/translate`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lang, include_nodes: true, stale: false }) }); } catch {}
         }
-        langSel.addEventListener('change', async (e)=>{
-          const lang = e.target.value;
+        // language change handled by Settings dropdown
+        document.getElementById('settingsLangSelect')?.addEventListener('change', async (e)=>{
+          const lang = e.target.value || '';
           localStorage.setItem('displayLang', lang);
           if (lang) await ensureTranslations(lang);
           graph = await fetchGraph(lang);
@@ -1286,17 +1376,17 @@
           try { applyLOD(); applySearchAndFilter(); } catch {}
         });
 
-        document.getElementById('btnTrStats').addEventListener('click', async ()=>{
-          const lang = (document.getElementById('langSelect')?.value || 'en');
+        try { document.getElementById('btnTrStats').addEventListener('click', async ()=>{
+          const lang = getCurrentLang() || 'en';
           try {
             const s = await fetch(`/api/v1/projects/${projectId}/translation/stats?lang=${encodeURIComponent(lang)}`).then(r=>r.json());
             const d = s.data || {};
             alert(`Translation stats (${lang}):\nMissing nodes: ${d.missing_nodes}\nStale nodes: ${d.stale_nodes}\nMissing comments: ${d.missing_comments}\nStale comments: ${d.stale_comments}`);
           } catch { alert('Failed to fetch stats'); }
-        });
+        }); } catch {}
 
-        document.getElementById('btnTrRun').addEventListener('click', async ()=>{
-          const lang = (document.getElementById('langSelect')?.value || 'en');
+        try { document.getElementById('btnTrRun').addEventListener('click', async ()=>{
+          const lang = getCurrentLang() || 'en';
           const btn = document.getElementById('btnTrRun');
           const oldText = btn.textContent;
           let preflightTotalAll = 0;
@@ -1477,17 +1567,17 @@
             // Safety unlock after 15s in any case
             setTimeout(()=>{ if(btn.disabled){ btn.disabled=false; btn.textContent=oldText; } }, 15000);
           }
-        });
+        }); } catch {}
 
         document.getElementById('btnRefreshTranslation').addEventListener('click', async ()=>{
           if (!selectedNodeId) { alert('Select a node'); return; }
-          const lang = (document.getElementById('langSelect')?.value || 'en');
+          const lang = getCurrentLang() || 'en';
           try {
             const res = await fetch(`/api/v1/nodes/${selectedNodeId}/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang, provider: 'mymemory' }) }).then(r=>r.json());
             const out = document.getElementById('selNodeTitleTranslated');
             if (out) out.value = (res && res.data && res.data.text) || '';
             // also refresh label for this node in graph if language currently selected
-            const currentLang = (document.getElementById('langSelect')?.value || '');
+            const currentLang = getCurrentLang() || '';
             if (currentLang) {
               const n = cy.getElementById(String(selectedNodeId));
               if (n && n.nonempty()) n.data('label', out.value || n.data('label'));
@@ -1640,6 +1730,10 @@
           // Initialize collapsible sections (idempotent)
           wireCollapsibleSection({ toggleId: 'serverInfoToggle', bodyId: 'serverInfoBody', storageKey: 'sidebar.settings.serverInfo.collapsed' });
           wireCollapsibleSection({ toggleId: 'envToggle', bodyId: 'envBody', storageKey: 'sidebar.settings.env.collapsed' });
+          wireCollapsibleSection({ toggleId: 'exportImportToggle', bodyId: 'exportImportBody', storageKey: 'sidebar.settings.exportImport.collapsed' });
+          wireCollapsibleSection({ toggleId: 'translationToggle', bodyId: 'translationBody', storageKey: 'sidebar.settings.translation.collapsed' });
+          wireCollapsibleSection({ toggleId: 'visibilityToggle', bodyId: 'visibilityBody', storageKey: 'sidebar.settings.visibility.collapsed' });
+          wireCollapsibleSection({ toggleId: 'zoomToggle', bodyId: 'zoomBody', storageKey: 'sidebar.settings.zoom.collapsed' });
           ensureSettingsLoaded();
         }
         tabTask.addEventListener('click', showTask);
@@ -1916,32 +2010,51 @@
         projTitleEl.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); projTitleEl.blur(); }});
         projTitleEl.addEventListener('blur', commitProjectTitle);
 
-        // Export JSON (nodes+edges)
-        document.getElementById('btnExportJSON').addEventListener('click', async () => {
-          const nodes = await fetch(`/api/v1/projects/${projectId}/nodes`).then(r=>r.json());
-          const edges = await fetch(`/api/v1/projects/${projectId}/edges`).then(r=>r.json());
+        // Helpers: export/import and translation API
+        async function exportProjectJSON(pid){
+          const nodes = await fetch(`/api/v1/projects/${pid}/nodes`).then(r=>r.json());
+          const edges = await fetch(`/api/v1/projects/${pid}/edges`).then(r=>r.json());
           const blob = new Blob([JSON.stringify({nodes: nodes.data, edges: edges.data}, null, 2)], {type: 'application/json'});
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
-          a.href = url; a.download = `project-${projectId}.json`; a.click();
+          a.href = url; a.download = `project-${pid}.json`; a.click();
           URL.revokeObjectURL(url);
-        });
+        }
 
-        // Import JSON (append)
-        document.getElementById('importInput').addEventListener('change', async (e) => {
-          const file = e.target.files && e.target.files[0];
-          if (!file) return;
+        async function importProjectJSONFromFile(file){
           const text = await file.text();
           const data = JSON.parse(text);
           for (const n of (data.nodes || [])) {
             await postJSON(`/api/v1/projects/${projectId}/nodes`, { title: n.title || n.id, description: n.description || '', link_url: (n.link_url || null) });
           }
           // reload graph after import to get IDs and edges correct
-          graph = await fetchGraph();
+          const curLang = getCurrentLang();
+          graph = await fetchGraph(curLang);
           cy.elements().remove();
           cy.add(toElements(graph));
           cy.layout({ name: 'preset' }).run();
-        });
+          cy.fit();
+        }
+
+        async function fetchTranslationStats(lang){
+          return await fetch(`/api/v1/projects/${projectId}/translation/stats?lang=${encodeURIComponent(lang||'en')}`).then(r=>r.json());
+        }
+
+        async function runTranslateAsync(lang, opts){
+          const body = Object.assign({ lang: (lang||'en'), include_nodes: true, include_comments: false, stale: false, force: false }, (opts||{}));
+          return await fetch(`/api/v1/projects/${projectId}/translate/async`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r=>r.json());
+        }
+
+        // Export JSON (nodes+edges)
+        try { document.getElementById('btnExportJSON').addEventListener('click', async () => { exportProjectJSON(projectId); }); } catch {}
+
+        // Import JSON (append)
+        try { document.getElementById('importInput').addEventListener('change', async (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          await importProjectJSONFromFile(file);
+          e.target.value = '';
+        }); } catch {}
 
         // Screenshot PNG
         document.getElementById('btnScreenshot').addEventListener('click', () => {
@@ -1967,24 +2080,86 @@
           } catch (e) { /* ignore */ }
         });
 
-        // Show hidden toggle wiring
-        (function wireShowHidden(){
-          const chk = document.getElementById('showHiddenToggle');
-          if (!chk) return;
-          // restore saved state
+        // (removed) toolbar Show hidden wiring; handled in Settings block
+
+        // Settings: wire Export/Import controls
+        (function wireSettingsExportImport(){
+          const btnExp = document.getElementById('settingsBtnExportJSON');
+          if (btnExp) btnExp.addEventListener('click', () => { exportProjectJSON(projectId); showToast('Exported project JSON', 'success'); });
+          const inp = document.getElementById('settingsImportInput');
+          if (inp) inp.addEventListener('change', async (e)=>{ const file = e.target.files && e.target.files[0]; if (!file) return; await importProjectJSONFromFile(file); showToast('Import completed', 'success'); e.target.value=''; });
+        })();
+
+        // Settings: wire Language select and sync with toolbar
+        (function wireSettingsLanguage(){
+          const sSel = document.getElementById('settingsLangSelect');
+          if (!sSel) return;
+          // initialize from saved
+          const saved = localStorage.getItem('displayLang') || '';
+          sSel.value = saved;
+          sSel.addEventListener('change', async (e)=>{
+            const lang = e.target.value || '';
+            localStorage.setItem('displayLang', lang);
+            if (lang) await ensureTranslations(lang);
+            graph = await fetchGraph(lang);
+            cy.elements().remove(); cy.add(toElements(graph)); cy.layout({ name: 'preset' }).run(); cy.fit();
+          });
+        })();
+
+        // Settings: wire Show Hidden checkbox and sync with toolbar
+        (function wireSettingsShowHidden(){
+          const chkSettings = document.getElementById('settingsShowHiddenToggle');
+          if (!chkSettings) return;
+          // restore saved
           const saved = localStorage.getItem('showHidden');
-          if (saved !== null) chk.checked = (saved === '1');
-          chk.addEventListener('change', async ()=>{
-            localStorage.setItem('showHidden', chk.checked ? '1' : '0');
-            const lang = (document.getElementById('langSelect')?.value || '');
+          if (saved !== null) chkSettings.checked = (saved === '1');
+          chkSettings.addEventListener('change', async ()=>{
+            localStorage.setItem('showHidden', chkSettings.checked ? '1' : '0');
+            const lang = getCurrentLang();
             graph = await fetchGraph(lang);
             cy.elements().remove();
             cy.add(toElements(graph));
             cy.layout({ name: 'preset' }).run();
             cy.fit();
-            // Recompute edge path colors in the updated graph
             try { recomputePriorityPaths(); } catch {}
           });
+        })();
+
+        // Settings: wire Translation Stats and Run Translate
+        (function wireSettingsTranslationActions(){
+          const statsBtn = document.getElementById('settingsBtnTrStats');
+          const runBtn = document.getElementById('settingsBtnRunTranslate');
+          const outStats = document.getElementById('settingsTrStats');
+          const outJob = document.getElementById('settingsTrJob');
+          function curLang(){
+            const a = document.getElementById('settingsLangSelect');
+            const b = document.getElementById('langSelect');
+            return (a && a.value) || (b && b.value) || 'en';
+          }
+          if (statsBtn){
+            statsBtn.addEventListener('click', async ()=>{
+              const lang = curLang();
+              statsBtn.disabled = true; statsBtn.setAttribute('aria-busy','true');
+              try {
+                const s = await fetchTranslationStats(lang);
+                const d = (s && s.data) || {};
+                outStats.textContent = `Language: ${lang}\nMissing nodes: ${d.missing_nodes}\nStale nodes: ${d.stale_nodes}\nMissing comments: ${d.missing_comments}\nStale comments: ${d.stale_comments}`;
+              } catch { outStats.textContent = 'Failed to load translation stats'; showToast('Failed to load translation stats','error'); }
+              finally { statsBtn.disabled = false; statsBtn.removeAttribute('aria-busy'); }
+            });
+          }
+          if (runBtn){
+            runBtn.addEventListener('click', async ()=>{
+              const lang = curLang();
+              const old = runBtn.textContent; runBtn.disabled = true; runBtn.textContent = 'Running...'; runBtn.setAttribute('aria-busy','true');
+              try {
+                const res = await runTranslateAsync(lang);
+                const jobId = res && res.data && res.data.job_id;
+                outJob.textContent = jobId ? `Started translate job: ${jobId}` : 'Started translate job';
+              } catch { outJob.textContent = 'Failed to start translate job'; showToast('Failed to start translate job','error'); }
+              finally { runBtn.disabled = false; runBtn.textContent = old; runBtn.removeAttribute('aria-busy'); }
+            });
+          }
         })();
       })();
     </script>
