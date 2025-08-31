@@ -113,6 +113,28 @@
         };
 
         const table = document.getElementById('envTable');
+        function restartLog(msg){
+          try {
+            let box = document.getElementById('restartDebug');
+            if (!box){
+              box = document.createElement('div');
+              box.id = 'restartDebug';
+              box.className = 'fixed bottom-3 right-3 max-w-md w-[28rem] max-h-52 overflow-auto bg-white/90 border border-amber-200 rounded shadow text-[12px] text-slate-800 z-50';
+              const head = document.createElement('div');
+              head.className = 'px-2 py-1 border-b bg-amber-50 flex items-center justify-between';
+              head.innerHTML = '<span class="font-medium">Restart Debug Log</span>';
+              const body = document.createElement('div'); body.id = 'restartDebugBody'; body.className = 'p-2 space-y-1';
+              box.appendChild(head); box.appendChild(body); document.body.appendChild(box);
+            }
+            const body = document.getElementById('restartDebugBody');
+            const line = document.createElement('div');
+            const ts = new Date();
+            const t = ts.toLocaleTimeString();
+            line.textContent = `[${t}] ${msg}`;
+            body.appendChild(line);
+            box.scrollTop = box.scrollHeight;
+          } catch {}
+        }
         // initialize masked values
         table.querySelectorAll('tr').forEach(row => {
           const valueCell = row.querySelector('td:nth-child(2) div');
@@ -165,29 +187,34 @@
         async function doRestart(){
           if (!confirm('Restart the server now?')) return;
           showBanner('Restarting server...', 'info');
+          restartLog('User clicked restart button');
           try {
             // capture current pid
             let oldPid = null;
             try {
               const h = await fetch('/api/v1/health', { cache: 'no-store' }).then(r=>r.json());
               oldPid = h && h.data && h.data.pid ? Number(h.data.pid) : null;
-            } catch {}
+              restartLog(`Fetched current health, oldPid=${oldPid??'null'}`);
+            } catch { restartLog('Failed to fetch initial health'); }
 
             const resp = await fetch('/api/v1/settings/restart', { method: 'POST' });
             if (!resp.ok){
               const t = await resp.text();
+              restartLog(`POST /settings/restart failed: ${String(t||resp.status)}`);
               showBanner('Failed to restart: ' + String(t||resp.status), 'error');
               return;
             }
             const jr = await resp.json();
             const opId = jr && jr.data && jr.data.op_id ? String(jr.data.op_id) : '';
+            restartLog(`Received opId=${opId||'none'}`);
             if (opId){ try { localStorage.setItem('lastRestartOpId', opId); } catch {} }
             
-            const deadline = Date.now() + 45000;
+            const downDeadline = Date.now() + 10000;
+            const upDeadline = Date.now() + 90000;
             // wait for DOWN
             const waitDown = async () => {
-              while (Date.now() < deadline) {
-                try { const r = await fetch('/api/v1/health', { cache: 'no-store' }); if (!r.ok) break; } catch { break; }
+              while (Date.now() < downDeadline) {
+                try { const r = await fetch('/api/v1/health', { cache: 'no-store' }); if (!r.ok) { restartLog('Health is DOWN'); break; } else { restartLog('Waiting for DOWN...'); } } catch { restartLog('Health request threw, consider DOWN'); break; }
                 await new Promise(rs=>setTimeout(rs, 600));
               }
             };
@@ -195,19 +222,26 @@
 
             // wait for UP with pid change if possible
             const waitUp = async () => {
-              while (Date.now() < deadline) {
+              restartLog('Waiting for server to come UP...');
+              let lastStatusLogTs = 0;
+              while (Date.now() < upDeadline) {
                 if (opId){
                   try {
                     const s = await fetch('/api/v1/settings/restart/status/' + opId, { cache: 'no-store' }).then(r=>r.json());
+                    if (s && s.data){
+                      const nowTs = Date.now();
+                      if (nowTs - lastStatusLogTs > 2000){ restartLog(`Status: ${String(s.data.status||'unknown')}`); lastStatusLogTs = nowTs; }
+                    }
                     if (s && s.data && s.data.status === 'restarted'){
                       const pb = (s.data.pid_before != null) ? String(s.data.pid_before) : '';
                       const pa = (s.data.pid_after != null) ? String(s.data.pid_after) : '';
                       const hint = (pb && pa) ? ` (PID ${pb}\u2192${pa})` : '';
+                      restartLog(`Status: restarted${hint}`);
                       showBanner('Server restarted' + hint + '. Reloading...', 'success');
                       setTimeout(()=>location.reload(), 800);
                       return true;
                     }
-                    if (s && s.data && s.data.status === 'port_still_in_use'){ showBanner('Port still in use. Check logs.', 'error'); return false; }
+                    if (s && s.data && s.data.status === 'port_still_in_use'){ restartLog('Status: port_still_in_use'); showBanner('Port still in use. Check logs.', 'error'); return false; }
                   } catch {}
                 }
                 try {
@@ -217,10 +251,11 @@
                     const newPid = j && j.data && j.data.pid ? Number(j.data.pid) : null;
                     if (!oldPid || (newPid && newPid !== oldPid)){
                       const hint = (oldPid && newPid) ? ` (PID ${oldPid}\u2192${newPid})` : '';
+                      restartLog(`Health UP, newPid=${newPid??'null'}${hint}`);
                       showBanner('Server restarted' + hint + '. Reloading...', 'success');
                       setTimeout(()=>location.reload(), 800);
                       return true;
-                    }
+                    } else { restartLog(`Health UP but PID unchanged (old=${oldPid??'null'}, new=${newPid??'null'})`); }
                   }
                 } catch {}
                 await new Promise(rs=>setTimeout(rs, 1000));
@@ -228,7 +263,7 @@
               return false;
             };
             const up = await waitUp();
-            if (!up){ showBanner('Server did not come back in time. Check logs.', 'error'); return; }
+            if (!up){ restartLog('Timeout waiting for server to come UP'); showBanner('Server did not come back in time. Check logs.', 'error'); return; }
             showBanner('Server restarted successfully. Reloading...', 'success');
             setTimeout(() => { window.location.reload(); }, 800);
           } catch (e){

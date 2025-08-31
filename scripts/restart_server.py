@@ -44,6 +44,17 @@ def write_json_result(root: Path, data: Dict[str, Any]) -> None:
     out_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def write_op_status(root: Path, op_id: Optional[str], data: Dict[str, Any]) -> None:
+    if not op_id:
+        return
+    try:
+        op_dir = root / "instance" / "restart_ops"
+        op_dir.mkdir(parents=True, exist_ok=True)
+        (op_dir / f"{op_id}.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def read_health(base_url: str, timeout: float = 1.5) -> Optional[Dict[str, Any]]:
     try:
         import urllib.request
@@ -139,6 +150,9 @@ def main() -> int:
     }
     if args.op_id:
         result["op_id"] = args.op_id
+    # Write initial status as early as possible
+    result["status"] = "started"
+    write_op_status(root, args.op_id, result)
 
     # Capture pid_before (best-effort)
     h0 = read_health(f"{host}:{port}", timeout=0.8)
@@ -154,7 +168,9 @@ def main() -> int:
         try:
             if os.name == "nt":
                 info["method"] = "taskkill"
-                proc = run_silent(["taskkill", "/PID", str(pid_val), "/F", "/T"])  # nosec
+                # Important: do NOT use /T (kill tree), it may terminate this relauncher if the OS still
+                # considers it a child process of the server. We only kill the target PID.
+                proc = run_silent(["taskkill", "/PID", str(pid_val), "/F"])  # nosec
                 info["returncode"] = proc.returncode
                 info["stdout"] = (proc.stdout or "").strip()
                 info["stderr"] = (proc.stderr or "").strip()
@@ -198,13 +214,11 @@ def main() -> int:
                 break
             time.sleep(0.6)
     result["phases"].append(phase1)
+    write_op_status(root, args.op_id, result)
 
     if is_port_listening("127.0.0.1", port, timeout=0.5):
         result["status"] = "port_still_in_use"
-        if args.op_id:
-            op_dir = root / "instance" / "restart_ops"
-            op_dir.mkdir(parents=True, exist_ok=True)
-            (op_dir / f"{args.op_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_op_status(root, args.op_id, result)
         write_json_result(root, result)
         print(json.dumps(result, ensure_ascii=False))
         return 2
@@ -230,14 +244,16 @@ def main() -> int:
         phase2["error"] = str(e)
         result["phases"].append(phase2)
         result["status"] = "spawn_failed"
+        write_op_status(root, args.op_id, result)
         write_json_result(root, result)
         print(json.dumps(result, ensure_ascii=False))
         return 2
     result["phases"].append(phase2)
+    write_op_status(root, args.op_id, result)
 
     # Phase 3: wait until health comes back and PID changes
     phase3 = {"phase": "wait_up", "attempts": 0}
-    for i in range(60):  # ~60s
+    for i in range(90):  # ~90s
         phase3["attempts"] = i + 1
         try:
             h = read_health(f"{host}:{port}", timeout=1.0)
@@ -251,10 +267,7 @@ def main() -> int:
                     result["finished"] = datetime.utcnow().isoformat() + "Z"
                     result["ok"] = True
                     result["phases"].append(phase3)
-                    if args.op_id:
-                        op_dir = root / "instance" / "restart_ops"
-                        op_dir.mkdir(parents=True, exist_ok=True)
-                        (op_dir / f"{args.op_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+                    write_op_status(root, args.op_id, result)
                     write_json_result(root, result)
                     print(json.dumps(result, ensure_ascii=False))
                     return 0
@@ -264,15 +277,14 @@ def main() -> int:
                     result["finished"] = datetime.utcnow().isoformat() + "Z"
                     result["ok"] = True
                     result["phases"].append(phase3)
-                    if args.op_id:
-                        op_dir = root / "instance" / "restart_ops"
-                        op_dir.mkdir(parents=True, exist_ok=True)
-                        (op_dir / f"{args.op_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+                    write_op_status(root, args.op_id, result)
                     write_json_result(root, result)
                     print(json.dumps(result, ensure_ascii=False))
                     return 0
         except Exception:
             pass
+        # Heartbeat status during wait_up
+        write_op_status(root, args.op_id, result)
         time.sleep(1.0)
 
     result["phases"].append(phase3)
@@ -282,10 +294,7 @@ def main() -> int:
     else:
         result["status"] = "started_but_unhealthy"
     result["finished"] = datetime.utcnow().isoformat() + "Z"
-    if args.op_id:
-        op_dir = root / "instance" / "restart_ops"
-        op_dir.mkdir(parents=True, exist_ok=True)
-        (op_dir / f"{args.op_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_op_status(root, args.op_id, result)
     write_json_result(root, result)
     print(json.dumps(result, ensure_ascii=False))
     return 0

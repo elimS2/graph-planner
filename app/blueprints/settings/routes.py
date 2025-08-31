@@ -117,8 +117,28 @@ def restart_server():
 
     # Spawn detached process cross-platform
     try:
+        current_app.logger.info("[restart] spawning relauncher: %s", " ".join(args))
         spawn_detached_silent(args, cwd=str(root))
+        # Best-effort: wait briefly for op status file to appear to ensure relauncher actually started
+        op_path = ops_dir / f"{op_id}.json"
+        deadline = time.time() + 2.0
+        appeared = False
+        while time.time() < deadline:
+            if op_path.exists():
+                appeared = True
+                break
+            time.sleep(0.1)
+        if not appeared:
+            current_app.logger.warning("[restart] op file not observed within 2s, retrying spawn via python.exe fallback")
+            # Fallback to python.exe in case pythonw had issues
+            py_fallback = sys.executable or "python"
+            try:
+                spawn_detached_silent([py_fallback, str(relauncher), "--host", host, "--port", port, "--op-id", op_id], cwd=str(root))
+            except Exception:
+                pass
+        current_app.logger.info("[restart] relauncher spawned, scheduling shutdown")
     except Exception as e:
+        current_app.logger.exception("[restart] failed to spawn relauncher")
         return jsonify({"errors": [{"status": 500, "title": "Failed to spawn relauncher", "detail": str(e)}]}), 500
 
     # Schedule graceful shutdown after short delay to let response flush
@@ -130,12 +150,14 @@ def restart_server():
             # Allow relauncher to spawn before shutting down
             time.sleep(0.75)
             if callable(shutdown_func):
+                current_app.logger.info("[restart] invoking werkzeug shutdown")
                 shutdown_func()  # type: ignore[misc]
                 # Give werkzeug a moment to stop
                 time.sleep(0.75)
             # Hard fallback for cases when shutdown is unavailable or ignored
             try:
                 import os as _os
+                current_app.logger.info("[restart] forcing process exit(0)")
                 _os._exit(0)
             except Exception:
                 pass
