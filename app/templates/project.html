@@ -72,6 +72,17 @@
             <div id="selNodeTitle" contenteditable="true" spellcheck="false" class="text-sm text-slate-800 truncate border rounded px-2 py-1 focus:outline-none focus:ring focus:ring-slate-300">—</div>
           </div>
           <div>
+            <label class="block text-sm font-semibold text-slate-600">Link URL</label>
+            <input id="selNodeLinkUrl" class="w-full text-sm border rounded px-2 py-1" placeholder="https://example.com" />
+            <div class="mt-1 flex items-center gap-3">
+              <label class="inline-flex items-center gap-2 text-xs text-slate-600">
+                <input id="openInNewTab" type="checkbox" class="align-middle">
+                <span>Open in new tab (Ctrl+Click)</span>
+              </label>
+              <p id="linkHint" class="text-xs text-slate-500 hidden">Ctrl+Click node to open</p>
+            </div>
+          </div>
+          <div>
             <label class="block text-sm font-semibold text-slate-600">Translated Title (preview)</label>
             <div class="flex gap-2 items-center">
               <input id="selNodeTitleTranslated" class="flex-1 text-sm border rounded px-2 py-1" placeholder="—" readonly />
@@ -289,8 +300,8 @@
             <circle cx="50" cy="50" r="12" fill="#0f172a"/>\
           </svg>'
         );
-        const nodes = graph.nodes.map(n => ({
-          data: {
+        const nodes = graph.nodes.map(n => {
+          const data = {
             id: String(n.id),
             label: (n.title_translated || n.title),
             score: n.importance_score,
@@ -303,9 +314,13 @@
             created_at: n.created_at,
             priority: (n.priority || 'normal'),
             descendants: 0
-          },
-          position: n.position
-        }));
+          };
+          const link = (typeof n.link_url === 'string') ? n.link_url.trim() : '';
+          if (link) { data.link_url = link; }
+          // propagate per-node open preference
+          if (typeof n.link_open_in_new_tab === 'boolean') { data.link_open_in_new_tab = !!n.link_open_in_new_tab; }
+          return ({ data, position: n.position });
+        });
         const prioById = new Map(nodes.map(ne => [ne.data.id, ne.data.priority]));
         const statusById = new Map(nodes.map(ne => [ne.data.id, ne.data.status]));
         const edges = graph.edges.map(e => ({ data: { id: String(e.id), source: String(e.source_node_id), target: String(e.target_node_id), type: e.type, weight: e.weight, targetPriority: prioById.get(String(e.target_node_id)) || 'normal', targetStatus: statusById.get(String(e.target_node_id)) || 'planned', pathPriority: 'none' }}));
@@ -366,6 +381,7 @@
           elements: toElements(graph),
           style: [
             { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(descendants, 0, 20, 20, 80)', 'height': 'mapData(descendants, 0, 20, 20, 80)'} },
+            { selector: 'node[link_url]', style: { 'color': '#1d4ed8' } },
             { selector: 'edge', style: { 'line-color': '#64748b', 'width': 1.5, 'curve-style': 'bezier', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle', 'arrow-scale': 1.2 } },
             { selector: 'edge[pathPriority = "high"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' } },
             { selector: 'edge[pathPriority = "critical"]', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444' } },
@@ -523,10 +539,30 @@
         }
 
         cy.on('tap', 'node', async (evt) => {
+          // Ctrl+click opens link_url in new tab (if present)
+          try {
+            const oe = evt.originalEvent;
+            const url = evt.target && evt.target.data ? (evt.target.data('link_url') || '') : '';
+            if (oe && oe.ctrlKey && url) {
+              let openNew = (localStorage.getItem('openLinkInNewTab') !== '0');
+              try {
+                const nodePref = evt.target.data('link_open_in_new_tab');
+                if (typeof nodePref === 'boolean') openNew = nodePref;
+              } catch {}
+              const target = openNew ? '_blank' : '_self';
+              window.open(url, target, openNew ? 'noopener,noreferrer' : undefined);
+              return;
+            }
+          } catch {}
           selectedNodeId = evt.target.data('id');
           selEl.textContent = selectedNodeId;
           const titleEl = document.getElementById('selNodeTitle');
           if (titleEl) titleEl.textContent = String(evt.target.data('label') || '—');
+          const linkEl = document.getElementById('selNodeLinkUrl');
+          const linkHint = document.getElementById('linkHint');
+          const curLink = String(evt.target.data('link_url') || '');
+          if (linkEl) linkEl.value = curLink;
+          if (linkHint) { if (curLink) linkHint.classList.remove('hidden'); else linkHint.classList.add('hidden'); }
           try {
             const lang = (document.getElementById('langSelect')?.value || '');
             const out = document.getElementById('selNodeTitleTranslated');
@@ -543,6 +579,18 @@
           if (delBtn) delBtn.classList.remove('hidden');
           const prGrp = document.getElementById('priorityRadios');
           if (prGrp) setRadioGroupValue(prGrp, String(evt.target.data('priority') || 'normal'));
+          // reflect per-node open target in checkbox (fallback to storage default)
+          try {
+            const chk = document.getElementById('openInNewTab');
+            if (chk) {
+              let nodePref = evt.target.data('link_open_in_new_tab');
+              if (typeof nodePref !== 'boolean') {
+                const saved = localStorage.getItem('openLinkInNewTab');
+                nodePref = (saved === null || saved === '1'); // default true
+              }
+              chk.checked = !!nodePref;
+            }
+          } catch {}
           // compute descendants via outgoing edges (reachability)
           const start = cy.getElementById(selectedNodeId);
           let count = 0;
@@ -582,7 +630,17 @@
         async function patchJSON(url, data) {
           const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
           if (res.status === 401) { alert('Login required'); throw new Error('Unauthorized'); }
-          if (!res.ok) throw new Error('Request failed');
+          if (!res.ok) {
+            let msg = 'Request failed';
+            try {
+              const j = await res.json();
+              const e0 = (j && j.errors && j.errors[0]) || null;
+              msg = (e0 && (e0.detail || e0.title)) || msg;
+            } catch {
+              try { msg = (await res.text()) || msg; } catch {}
+            }
+            throw new Error(msg);
+          }
           return res.json();
         }
         async function del(url) {
@@ -754,6 +812,47 @@
           if (e.key === 'Enter') { e.preventDefault(); commitInlineTitle(); titleInlineEl.blur(); }
         });
         titleInlineEl.addEventListener('blur', () => commitInlineTitle());
+
+        // Link URL field: save on blur/Enter, toggle hint visibility
+        (function wireLinkUrl(){
+          const input = document.getElementById('selNodeLinkUrl');
+          const hint = document.getElementById('linkHint');
+          const chk = document.getElementById('openInNewTab');
+          if (!input) return;
+          // initialize checkbox from storage
+          if (chk){
+            const saved = localStorage.getItem('openLinkInNewTab');
+            chk.checked = (saved === null || saved === '1');
+            chk.addEventListener('change', async () => {
+              localStorage.setItem('openLinkInNewTab', chk.checked ? '1' : '0');
+              if (selectedNodeId) {
+                try {
+                  const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { link_open_in_new_tab: !!chk.checked });
+                  const n = cy.getElementById(String(selectedNodeId));
+                  if (n && n.nonempty()) n.data('link_open_in_new_tab', !!(resp && resp.data && resp.data.link_open_in_new_tab));
+                } catch {}
+              }
+            });
+          }
+          async function commit(){
+            if (!selectedNodeId) return;
+            const raw = (input.value || '').trim();
+            const payload = { link_url: raw || null };
+            try {
+              const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, payload);
+              const url = resp && resp.data ? (resp.data.link_url || '') : (raw || '');
+              // update cy data and hint
+              const n = cy.getElementById(String(selectedNodeId));
+              if (n && n.nonempty()) n.data('link_url', url || null);
+              if (hint) { if (url) hint.classList.remove('hidden'); else hint.classList.add('hidden'); }
+            } catch (e) {
+              const msg = (e && e.message) ? e.message : 'Invalid link URL';
+              alert(msg);
+            }
+          }
+          input.addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); input.blur(); } });
+          input.addEventListener('blur', ()=>commit());
+        })();
 
         document.getElementById('btnDeleteNodePanel').addEventListener('click', async () => {
           if (!selectedNodeId) { alert('Select a node'); return; }
@@ -1685,7 +1784,7 @@
           const text = await file.text();
           const data = JSON.parse(text);
           for (const n of (data.nodes || [])) {
-            await postJSON(`/api/v1/projects/${projectId}/nodes`, { title: n.title || n.id, description: n.description || '' });
+            await postJSON(`/api/v1/projects/${projectId}/nodes`, { title: n.title || n.id, description: n.description || '', link_url: (n.link_url || null) });
           }
           // reload graph after import to get IDs and edges correct
           graph = await fetchGraph();
@@ -1704,7 +1803,7 @@
         // Onboarding overlay
         const help = document.getElementById('btnHelp');
         help.addEventListener('click', () => {
-          alert('Shortcuts: n=new node, e=new edge, f=fit, /=search. Use toolbar to manage nodes/edges, sidebar for comments/time/cost.');
+          alert('Shortcuts: n=new node, e=new edge, f=fit, /=search. Ctrl+Click a node with Link URL opens it in a new tab. Use toolbar to manage nodes/edges, sidebar for comments/time/cost.');
         });
 
         // Persist position after drag

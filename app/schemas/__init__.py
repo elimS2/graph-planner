@@ -16,6 +16,8 @@ class NodeSchema(Schema):
     project_id = fields.String(required=True, load_only=True)
     title = fields.String(required=True)
     description = fields.String(allow_none=True)
+    link_url = fields.String(allow_none=True)
+    link_open_in_new_tab = fields.Boolean()
     status = fields.String()
     importance_score = fields.Float(dump_only=True)
     planned_hours = fields.Float()

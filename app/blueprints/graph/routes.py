@@ -24,6 +24,7 @@ from ...services.nodes import recompute_importance_score, recompute_group_status
 from ...services.graph_analysis import longest_path_by_planned_hours
 from ...models import NodeTranslation, CommentTranslation
 from ...models import BackgroundJob
+from urllib.parse import urlparse
 
 
 bp = Blueprint("graph", __name__, url_prefix="/api/v1")
@@ -46,6 +47,43 @@ def _fallback_user_id() -> str:
         db.session.add(u)
         db.session.flush()
     return u.id
+
+
+def _normalize_and_validate_link_url(raw: object) -> str | None:
+    """Trim, normalize empty to None, and validate URL scheme.
+
+    Allowed schemes: http, https, mailto, ftp. Returns normalized string or None.
+    Raises ValueError on invalid/unsafe inputs.
+    """
+    if raw is None:
+        return None
+    try:
+        s = str(raw).strip()
+    except Exception:
+        return None
+    if not s:
+        return None
+    # Basic control char guard
+    if any(ord(ch) < 32 for ch in s):
+        raise ValueError("URL contains control characters")
+    # Auto-prefix bare domains without scheme
+    p = urlparse(s)
+    if not p.scheme and not p.netloc and '://' not in s:
+        # looks like bare domain? add https://
+        try:
+            import re
+            if re.match(r"^[A-Za-z0-9._-]+\.[A-Za-z]{2,}(/.*)?$", s):
+                s = "https://" + s
+                p = urlparse(s)
+        except Exception:
+            pass
+    scheme = (p.scheme or "").lower()
+    if scheme not in {"http", "https", "mailto", "ftp"}:
+        raise ValueError("URL scheme must be http/https/mailto/ftp")
+    # For http/https, require netloc
+    if scheme in {"http", "https"} and not p.netloc:
+        raise ValueError("URL must include a valid host")
+    return s
 
 
 @bp.get("/health")
@@ -152,6 +190,15 @@ def list_nodes(project_id: str):
 def create_node(project_id: str):
     payload = request.get_json(force=True) or {}
     payload["project_id"] = project_id
+    # link_url: normalize and validate if provided
+    if "link_url" in payload:
+        try:
+            payload["link_url"] = _normalize_and_validate_link_url(payload.get("link_url"))
+        except ValueError as e:
+            return jsonify({"errors": [{"status": 400, "title": "Invalid link_url", "detail": str(e)}]}), 400
+    # default link_open_in_new_tab if not provided
+    if "link_open_in_new_tab" not in payload:
+        payload["link_open_in_new_tab"] = True
     data = NodeSchema().load(payload)
     item = Node(**data)
     db.session.add(item)
@@ -210,6 +257,12 @@ def update_node(id: str):
     if not item:
         return jsonify({"errors": [{"status": 404, "title": "Not Found"}]}), 404
     payload = request.get_json(force=True) or {}
+    # link_url: normalize and validate if provided
+    if "link_url" in payload:
+        try:
+            payload["link_url"] = _normalize_and_validate_link_url(payload.get("link_url"))
+        except ValueError as e:
+            return jsonify({"errors": [{"status": 400, "title": "Invalid link_url", "detail": str(e)}]}), 400
     data = NodeSchema(partial=True).load(payload)
     old_status = item.status
     for k, v in data.items():

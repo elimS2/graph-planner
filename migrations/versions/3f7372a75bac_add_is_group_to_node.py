@@ -17,10 +17,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    pass
+    try:
+        op.add_column('node', sa.Column('is_group', sa.Boolean(), nullable=False, server_default=sa.text('0')))
+        op.alter_column('node', 'is_group', server_default=None)
+    except Exception:
+        # Table/column may already exist in some environments; make migration idempotent-ish
+        try:
+            op.execute("SELECT 1 FROM node LIMIT 1")
+        except Exception:
+            pass
 
 
 def downgrade() -> None:
-    pass
+    try:
+        op.drop_column('node', 'is_group')
+    except Exception:
+        pass
 
 

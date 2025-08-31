@@ -72,6 +72,8 @@ class Node(db.Model, TimestampMixin):
     project_id: Mapped[str] = mapped_column(db.String, ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(db.String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(db.Text, nullable=True)
+    link_url: Mapped[Optional[str]] = mapped_column(db.String, nullable=True)
+    link_open_in_new_tab: Mapped[bool] = mapped_column(db.Boolean, default=True, nullable=False)
     status: Mapped[str] = mapped_column(db.String, default="planned", nullable=False)
     importance_score: Mapped[float] = mapped_column(db.Float, default=0.0, nullable=False)
     planned_hours: Mapped[float] = mapped_column(db.Float, default=0.0, nullable=False)
