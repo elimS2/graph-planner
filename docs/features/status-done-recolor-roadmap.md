@@ -128,17 +128,17 @@ Regression Checks
 
 ### 8) Acceptance Criteria (Checklist)
 
-- [ ] Changing a node with `high`/`critical` priority to `done` immediately removes edge coloring without page reload.
-- [ ] Changing priority still recolors instantly, with no stale states.
-- [ ] Newly created edges correctly initialize both `targetPriority` and `targetStatus`.
-- [ ] No backend changes required; no console errors; performance unaffected.
+- [x] Changing a node with `high`/`critical` priority to `done` immediately removes edge coloring without page reload.
+- [x] Changing priority still recolors instantly, with no stale states.
+- [x] Newly created edges correctly initialize both `targetPriority` and `targetStatus`.
+- [x] No backend changes required; no console errors; performance unaffected.
 
 ### 9) Changelog (Work Log)
 
-- [ ] 2025-08-31 — Roadmap drafted, awaiting approval.
-- [ ] TBD — Implement helper and wire to status/priority handlers.
-- [ ] TBD — Update `addEdgeToCy` to set `targetStatus`.
-- [ ] TBD — Manual verification completed.
+- [x] 2025-08-31 — Roadmap drafted and approved.
+- [x] 2025-08-31 — Implemented `refreshEdgeTargetFlags(nodeId)` and wired to status/priority handlers in `app/templates/project.html`.
+- [x] 2025-08-31 — Updated `addEdgeToCy` to set `targetStatus` on creation.
+- [x] 2025-08-31 — Manual verification completed (Windows/Chrome): edge colors reset instantly on `done`, priority toggles still instant, no console errors.
 
 ### 10) Open Questions
 
