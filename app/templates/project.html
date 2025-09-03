@@ -6,6 +6,8 @@
     <title>{{ project.name }} - Graph</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <div class="flex flex-col h-screen">
@@ -131,7 +133,38 @@
           <form id="commentForm" class="space-y-2">
             <div>
               <label class="block text-sm">Comment</label>
-              <textarea name="body" class="w-full border rounded p-2" rows="3" placeholder="Write a comment"></textarea>
+              <div id="commentEditor" class="border rounded">
+                <div id="commentToolbar">
+                  <span class="ql-formats">
+                    <button class="ql-bold" title="Bold"></button>
+                    <button class="ql-italic" title="Italic"></button>
+                    <button class="ql-underline" title="Underline"></button>
+                    <button class="ql-strike" title="Strike"></button>
+                  </span>
+                  <span class="ql-formats">
+                    <button class="ql-code" title="Code"></button>
+                    <button class="ql-blockquote" title="Blockquote"></button>
+                  </span>
+                  <span class="ql-formats">
+                    <button class="ql-list" value="ordered" title="Ordered List"></button>
+                    <button class="ql-list" value="bullet" title="Bullet List"></button>
+                  </span>
+                  <span class="ql-formats">
+                    <select class="ql-header">
+                      <option value="1"></option>
+                      <option value="2"></option>
+                      <option value="3"></option>
+                      <option selected></option>
+                    </select>
+                  </span>
+                  <span class="ql-formats">
+                    <button class="ql-link" title="Link"></button>
+                    <button class="ql-clean" title="Clear Formatting"></button>
+                  </span>
+                </div>
+                <div id="commentEditorArea" class="h-32"></div>
+              </div>
+              <textarea name="body" class="w-full border rounded p-2 hidden" rows="3" placeholder="Write a comment"></textarea>
             </div>
             <input type="hidden" name="user_id" value="system-user" />
             <button type="submit" class="px-3 py-1 bg-blue-600 text-white rounded">Add Comment</button>
@@ -643,6 +676,22 @@
         }
         applyInitialPositions();
 
+        // WYSIWYG comment editor (Quill)
+        let quill = null;
+        function initQuillOnce(){
+          if (quill) return;
+          try {
+            const toolbar = document.getElementById('commentToolbar');
+            const area = document.getElementById('commentEditorArea');
+            if (!toolbar || !area || !(window.Quill)) return;
+            quill = new Quill('#commentEditorArea', {
+              modules: { toolbar: '#commentToolbar' },
+              theme: 'snow',
+              placeholder: 'Write a comment',
+            });
+          } catch {}
+        }
+
         const selEl = document.getElementById('selNode');
         let selectedNodeId = null;
         let selectedEdgeId = null;
@@ -658,7 +707,14 @@
           commentsList.innerHTML = '';
           c.data.forEach(x => {
             const li = document.createElement('li');
-            const body = document.createElement('span'); body.textContent = (x.body_translated || x.body);
+            const body = document.createElement('span');
+            if (x.body_html) {
+              body.innerHTML = x.body_html;
+              // Ensure links are safe
+              try { body.querySelectorAll('a').forEach(a => { a.setAttribute('rel', 'noopener noreferrer nofollow'); a.setAttribute('target', '_blank'); }); } catch {}
+            } else {
+              body.textContent = (x.body_translated || x.body);
+            }
             const time = document.createElement('span'); time.className = 'ml-2 text-xs text-slate-500'; time.textContent = formatDate(x.created_at);
             li.appendChild(body); li.appendChild(time);
             commentsList.appendChild(li);
@@ -695,6 +751,7 @@
         }
 
         cy.on('tap', 'node', async (evt) => {
+          initQuillOnce();
           // Ctrl+click opens link_url in new tab (if present)
           try {
             const oe = evt.originalEvent;
@@ -837,8 +894,20 @@
           e.preventDefault();
           if (!selectedNodeId) return;
           const fd = new FormData(e.target);
-          await postJSON(`/api/v1/nodes/${selectedNodeId}/comments`, { body: fd.get('body') });
+          let html = null;
+          let text = String(fd.get('body') || '').trim();
+          try {
+            if (quill) {
+              html = quill.root.innerHTML || '';
+              // derive text content (Quill inserts <p><br></p> for empty)
+              text = (quill.getText() || '').trim();
+              if (!text) html = null; // treat empty as no-op body_html
+            }
+          } catch {}
+          if (!text) return; // do not submit empty
+          await postJSON(`/api/v1/nodes/${selectedNodeId}/comments`, { body: text, body_html: html });
           e.target.reset();
+          try { if (quill) { quill.setContents([]); } } catch {}
           await refreshLists(selectedNodeId);
         });
 

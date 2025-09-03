@@ -23,6 +23,8 @@ from ...services.async_jobs import enqueue_translation_job, get_job
 from ...services.nodes import recompute_importance_score, recompute_group_status
 from ...services.graph_analysis import longest_path_by_planned_hours
 from ...models import NodeTranslation, CommentTranslation
+from ...utils.sanitize import sanitize_comment_html
+from marshmallow import ValidationError
 from ...models import BackgroundJob
 from urllib.parse import urlparse
 
@@ -367,15 +369,28 @@ def delete_edge(id: str):
 @bp.post("/nodes/<node_id>/comments")
 @login_required
 def add_comment(node_id: str):
-    payload = request.get_json(force=True) or {}
-    payload["node_id"] = node_id
-    # Force a valid user id (ignore client-provided value)
-    payload["user_id"] = _fallback_user_id()
-    data = CommentSchema().load(payload)
-    item = Comment(**data)
-    db.session.add(item)
-    db.session.commit()
-    return jsonify({"data": CommentSchema().dump(item)}), 201
+    try:
+        payload = request.get_json(force=True) or {}
+        payload["node_id"] = node_id
+        # Force a valid user id (ignore client-provided value)
+        payload["user_id"] = _fallback_user_id()
+        data = CommentSchema().load(payload)
+        # Sanitize optional HTML
+        if "body_html" in data:
+            data["body_html"] = sanitize_comment_html(data.get("body_html"))
+        item = Comment(**data)
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({"data": CommentSchema().dump(item)}), 201
+    except ValidationError as ve:
+        return jsonify({"errors": [{"status": 400, "title": "Invalid comment payload", "detail": ve.messages}]}), 400
+    except IntegrityError as ie:
+        db.session.rollback()
+        return jsonify({"errors": [{"status": 409, "title": "Integrity error", "detail": str(ie)}]}), 409
+    except Exception as e:  # pragma: no cover
+        db.session.rollback()
+        current_app.logger.exception("Failed to add comment")
+        return jsonify({"errors": [{"status": 500, "title": "Internal Server Error", "detail": str(e)}]}), 500
 
 
 @bp.get("/nodes/<node_id>/comments")

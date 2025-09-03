@@ -48,6 +48,7 @@ class CommentSchema(Schema):
     node_id = fields.String(required=True, load_only=True)
     user_id = fields.String(required=True)
     body = fields.String(required=True)
+    body_html = fields.String(allow_none=True)
     created_at = fields.String(dump_only=True)
     updated_at = fields.String(dump_only=True)
 

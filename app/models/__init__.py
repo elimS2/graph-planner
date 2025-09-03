@@ -160,6 +160,7 @@ class Comment(db.Model, TimestampMixin):
     node_id: Mapped[str] = mapped_column(db.String, ForeignKey("node.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[str] = mapped_column(db.String, ForeignKey("user.id"), nullable=False)
     body: Mapped[str] = mapped_column(db.Text, nullable=False)
+    body_html: Mapped[str | None] = mapped_column(db.Text, nullable=True)
 
     node = relationship("Node", back_populates="comments")
     user = relationship("User", back_populates="comments")
