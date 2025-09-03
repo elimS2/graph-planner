@@ -1,6 +1,6 @@
 ## Task Panel: Full WYSIWYG Editor for Comments
 
-Status: Draft
+Status: Completed
 Owner: System
 Last Updated: 2025-09-03
 
@@ -137,16 +137,16 @@ Implication: Introducing rich text requires safe HTML storage and rendering. Tra
 
 ## 9) Implementation Steps (Checklist)
 
-- [ ] Create Alembic migration: add `comment.body_html` (Text, nullable).
-- [ ] Add Bleach to `requirements.txt` and pin version; install.
-- [ ] Update `CommentSchema` to include optional `body_html`.
-- [ ] Update `POST /nodes/<id>/comments` to sanitize and persist `body_html`.
-- [ ] Update `GET /nodes/<id>/comments` to return `body_html`.
-- [ ] Integrate Quill in `project.html` with toolbar and lazy init.
-- [ ] Submit both `body` and `body_html` from UI.
-- [ ] Render comments preferring sanitized `body_html` else translated/body text.
-- [ ] Adjust translation docs to clarify behavior.
-- [ ] Add manual test script per workspace rules under `scripts/tests` to simulate payload and validate sanitization.
+- [x] Create Alembic migration: add `comment.body_html` (Text, nullable).
+- [x] Add Bleach to `requirements.txt` and pin version; install.
+- [x] Update `CommentSchema` to include optional `body_html`.
+- [x] Update `POST /nodes/<id>/comments` to sanitize and persist `body_html`.
+- [x] Update `GET /nodes/<id>/comments` to return `body_html`.
+- [x] Integrate Quill in `project.html` with toolbar and lazy init.
+- [x] Submit both `body` and `body_html` from UI.
+- [x] Render comments preferring sanitized `body_html` else translated/body text.
+- [x] Adjust translation docs to clarify behavior.
+- [x] Add manual test script per workspace rules under `scripts/tests` to simulate payload and validate sanitization.
 
 
 ## 10) Open Questions
