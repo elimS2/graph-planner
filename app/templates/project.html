@@ -8,6 +8,24 @@
     <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
+    <style>
+      /* Scoped styles for rendering sanitized comment HTML in the sidebar */
+      #commentsList .comments-prose ul { list-style: disc; padding-left: 1.25rem; margin: 0.25rem 0 0.5rem; }
+      #commentsList .comments-prose ol { list-style: decimal; padding-left: 1.25rem; margin: 0.25rem 0 0.5rem; }
+      #commentsList .comments-prose li { margin: 0.125rem 0; }
+      #commentsList .comments-prose li[data-indent="1"] { margin-left: 1.0rem; }
+      #commentsList .comments-prose li[data-indent="2"] { margin-left: 2.0rem; }
+      #commentsList .comments-prose li[data-indent="3"] { margin-left: 3.0rem; }
+      #commentsList .comments-prose li[data-indent="4"] { margin-left: 4.0rem; }
+      #commentsList .comments-prose p { margin: 0.25rem 0; }
+      #commentsList .comments-prose h1 { font-size: 1rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+      #commentsList .comments-prose h2 { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+      #commentsList .comments-prose h3 { font-size: 0.9rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+      #commentsList .comments-prose blockquote { border-left: 2px solid #cbd5e1; padding-left: 0.5rem; color: #475569; margin: 0.25rem 0; }
+      #commentsList .comments-prose code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.875em; background: #f1f5f9; padding: 0 0.2em; border-radius: 3px; }
+      #commentsList .comments-prose pre { background: #f8fafc; padding: 0.5rem; border-radius: 4px; overflow: auto; }
+      #commentsList .comments-prose a { color: #2563eb; text-decoration: underline; }
+    </style>
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <div class="flex flex-col h-screen">
@@ -710,8 +728,9 @@
           commentsList.innerHTML = '';
           c.data.forEach(x => {
             const li = document.createElement('li');
-            const body = document.createElement('span');
+            const body = document.createElement('div');
             if (x.body_html) {
+              body.className = 'comments-prose';
               body.innerHTML = x.body_html;
               // Ensure links are safe
               try { body.querySelectorAll('a').forEach(a => { a.setAttribute('rel', 'noopener noreferrer nofollow'); a.setAttribute('target', '_blank'); }); } catch {}
