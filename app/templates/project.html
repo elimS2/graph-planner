@@ -1735,10 +1735,24 @@
         (function setupResizer(){
           const resizer = document.getElementById('resizer');
           const sidebar = document.getElementById('sidebar');
+          const MIN_SIDEBAR = 260;
+          const MIN_LEFT = 0; // allow full-width sidebar
+          function getContainer(){ return resizer && resizer.parentElement ? resizer.parentElement : (sidebar && sidebar.parentElement ? sidebar.parentElement : document.body); }
+          function computeMaxSidebar(){
+            const container = getContainer();
+            const containerWidth = container ? container.clientWidth : window.innerWidth;
+            const resizerWidth = resizer ? (resizer.offsetWidth || 0) : 0;
+            const maxSidebar = containerWidth - resizerWidth - MIN_LEFT;
+            return Math.max(MIN_SIDEBAR, maxSidebar);
+          }
+          function applyWidthClamped(px){
+            const clamped = Math.max(MIN_SIDEBAR, Math.min(computeMaxSidebar(), px));
+            sidebar.style.width = clamped + 'px';
+            return clamped;
+          }
           function loadWidth(){
             const w = parseInt(localStorage.getItem('sidebarWidth') || '384', 10);
-            const clamped = Math.max(260, Math.min(560, w));
-            sidebar.style.width = clamped + 'px';
+            applyWidthClamped(w);
           }
           loadWidth();
           let dragging = false;
@@ -1760,9 +1774,14 @@
             if (!dragging) return;
             // Dragging left should INCREASE width, right should decrease
             const delta = startX - e.clientX; // left: positive, right: negative
-            const newW = Math.max(260, Math.min(560, startW + delta));
-            sidebar.style.width = newW + 'px';
+            const proposed = startW + delta;
+            applyWidthClamped(proposed);
             cy.resize();
+          });
+          // Re-clamp on window resize to avoid overflow when viewport shrinks
+          window.addEventListener('resize', () => {
+            applyWidthClamped(parseInt(sidebar.style.width||'384',10));
+            try { cy.resize(); } catch {}
           });
           // Hide resizer if sidebar hidden
           function syncResizer(){ resizer.style.display = (localStorage.getItem('sidebarHidden') === '1') ? 'none' : ''; }
