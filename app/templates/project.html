@@ -28,6 +28,7 @@
             <select id="statusFilter" class="border rounded px-2 py-1">
               <option value="">All</option>
               <option value="planned">Todo</option>
+              <option value="discuss">Discuss</option>
               <option value="in-progress">In Progress</option>
               <option value="done">Done</option>
               <option value="blocked">Blocked</option>
@@ -96,9 +97,10 @@
           </div>
           <div>
             <label class="block text-sm font-semibold">Status</label>
-            <div id="statusRadios" role="radiogroup" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div id="statusRadios" role="radiogroup" class="grid grid-cols-3 md:grid-cols-5 gap-2">
               <button type="button" role="radio" aria-checked="false" data-value="planned" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">todo</button>
               <button type="button" role="radio" aria-checked="false" data-value="in-progress" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">in-progress</button>
+              <button type="button" role="radio" aria-checked="false" data-value="discuss" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">discuss</button>
               <button type="button" role="radio" aria-checked="false" data-value="done" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">done</button>
               <button type="button" role="radio" aria-checked="false" data-value="blocked" class="px-2 py-1 text-xs rounded w-full bg-slate-100 text-slate-800">blocked</button>
             </div>
@@ -582,6 +584,7 @@
             { selector: 'node[status = "planned"]', style: { 'background-color': '#38bdf8' } },
             { selector: 'node[status = "done"]', style: { 'background-color': '#22c55e' } },
             { selector: 'node[status = "in-progress"]', style: { 'background-color': '#f59e0b' } },
+            { selector: 'node[status = "discuss"]', style: { 'background-color': '#8b5cf6' } },
             { selector: 'node[status = "blocked"]', style: { 'background-color': '#ef4444' } },
             { selector: '.cp', style: { 'border-width': 4, 'border-color': '#14b8a6' } },
             { selector: 'node[?is_group]', style: {
@@ -925,6 +928,7 @@
           switch(String(val)){
             case 'planned': return { solid: '#38bdf8', soft: '#f0f9ff', border: '#0ea5e9' }; // sky-400 / sky-50 / sky-500
             case 'in-progress': return { solid: '#f59e0b', soft: '#fffbeb', border: '#d97706' }; // amber-500 / amber-50 / amber-600
+            case 'discuss': return { solid: '#8b5cf6', soft: '#f5f3ff', border: '#7c3aed' }; // violet-500 / violet-50 / violet-600
             case 'done': return { solid: '#22c55e', soft: '#ecfdf5', border: '#16a34a' }; // emerald-500 / emerald-50 / emerald-600
             case 'blocked': return { solid: '#ef4444', soft: '#fef2f2', border: '#dc2626' }; // red-500 / red-50 / red-600
             default: return { solid: '#64748b', soft: '#e2e8f0', border: '#475569' }; // slate-500 / slate-200 / slate-600

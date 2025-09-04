@@ -24,7 +24,7 @@ def _log1p(x: float) -> float:
 def recompute_group_status(start_group_id: str | None) -> None:
     """Recalculate status for a group and its ancestors based on children.
 
-    Priority: blocked > in-progress > planned > done.
+    Priority: blocked > in-progress > planned > done. Status 'discuss' is treated as planned.
     All done => done; any blocked => blocked; any in-progress => in-progress; else planned.
     """
     current_id = start_group_id
@@ -37,7 +37,8 @@ def recompute_group_status(start_group_id: str | None) -> None:
             # empty groups default to planned
             group.status = "planned"
         else:
-            statuses = {c.status or "planned" for c in children}
+            # Treat any unknown/non-terminal statuses (e.g., 'discuss') as 'planned' for grouping
+            statuses = { (c.status if c.status in {"planned", "in-progress", "done", "blocked"} else "planned") or "planned" for c in children }
             if "blocked" in statuses:
                 group.status = "blocked"
             elif "in-progress" in statuses:
