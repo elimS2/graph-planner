@@ -61,6 +61,13 @@
             <button id="btnFit" class="px-3 py-1 bg-slate-600 text-white rounded">Fit</button>
             
             <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
+            <label id="langSelectContainer" class="inline-flex items-center gap-2 text-sm text-slate-700">
+              <span>Language</span>
+              <select id="langSelect" class="border rounded px-2 py-1" aria-label="Language">
+                <option value="">Original</option>
+                <option value="en">English</option>
+              </select>
+            </label>
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
             
             
@@ -439,6 +446,10 @@
                   </label>
                   <button id="settingsBtnTrStats" class="px-3 py-1 bg-slate-200 text-slate-800 rounded" aria-label="Show translation stats" title="Show translation stats">Translation Stats</button>
                   <button id="settingsBtnRunTranslate" class="px-3 py-1 bg-indigo-600 text-white rounded" aria-label="Run translation job" title="Run translation job">Run Translate</button>
+                  <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                    <input id="settingsShowLangSwitcherInHeader" type="checkbox" class="align-middle" aria-label="Show language switcher in header">
+                    <span>Show in header</span>
+                  </label>
                 </div>
                 <div id="settingsTranslationFeedback" class="text-xs text-slate-600 space-y-1">
                   <div id="settingsTrStats" class="whitespace-pre-wrap"></div>
@@ -2005,7 +2016,7 @@
         })();
 
         // Language toggle
-        const langSel = null; // toolbar lang removed; use Settings control
+        const langSel = document.getElementById('langSelect');
         async function ensureTranslations(lang){
           if (!lang) return;
           try { await fetch(`/api/v1/projects/${projectId}/translate`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ lang, include_nodes: true, stale: false }) }); } catch {}
@@ -2024,6 +2035,31 @@
           // Re-apply LOD and filters after reload
           try { applyLOD(); applySearchAndFilter(); } catch {}
         }
+
+        // Header language switcher visibility helpers
+        const isLangSwitcherShown = () => { try { const v = localStorage.getItem('header.show.langSwitcher'); if (v === '0') return false; } catch {} return true; };
+        const setLangSwitcherShown = (on) => { try { localStorage.setItem('header.show.langSwitcher', on ? '1' : '0'); } catch {} };
+        function applyLangSwitcherHeaderVisibility(){
+          const cont = document.getElementById('langSelectContainer') || document.getElementById('langSelect');
+          if (!cont) return;
+          if (isLangSwitcherShown()) cont.classList.remove('hidden'); else cont.classList.add('hidden');
+        }
+        // Apply initial visibility asap
+        applyLangSwitcherHeaderVisibility();
+
+        // Wire header language selector (idempotent)
+        (function wireHeaderLanguage(){
+          const hSel = document.getElementById('langSelect');
+          if (!hSel || hSel.dataset.wired === '1') return;
+          hSel.dataset.wired = '1';
+          const saved = localStorage.getItem('displayLang') || '';
+          hSel.value = saved;
+          hSel.addEventListener('change', async (e)=>{
+            const lang = e.target.value || '';
+            await handleLanguageChange(lang);
+            try { const sSel = document.getElementById('settingsLangSelect'); if (sSel) sSel.value = lang; } catch {}
+          });
+        })();
 
         try { document.getElementById('btnTrStats').addEventListener('click', async ()=>{
           const lang = getCurrentLang() || 'en';
@@ -2998,7 +3034,11 @@
           // initialize from saved
           const saved = localStorage.getItem('displayLang') || '';
           sSel.value = saved;
-          sSel.addEventListener('change', async (e)=>{ const lang = e.target.value || ''; await handleLanguageChange(lang); });
+          sSel.addEventListener('change', async (e)=>{
+            const lang = e.target.value || '';
+            await handleLanguageChange(lang);
+            try { const hSel = document.getElementById('langSelect'); if (hSel) hSel.value = lang; } catch {}
+          });
         })();
 
         // Settings: wire Show Hidden checkbox and sync with toolbar
@@ -3055,6 +3095,22 @@
               finally { runBtn.disabled = false; runBtn.textContent = old; runBtn.removeAttribute('aria-busy'); }
             });
           }
+        })();
+
+        // Settings: wire header language switcher visibility checkbox
+        (function wireSettingsLangVisibility(){
+          const chk = document.getElementById('settingsShowLangSwitcherInHeader');
+          if (!chk || chk.dataset.wired === '1') return;
+          chk.dataset.wired = '1';
+          // init from storage (default on)
+          try {
+            const v = localStorage.getItem('header.show.langSwitcher');
+            chk.checked = (v === null) ? true : (v === '1');
+          } catch { chk.checked = true; }
+          chk.addEventListener('change', ()=>{
+            setLangSwitcherShown(!!chk.checked);
+            applyLangSwitcherHeaderVisibility();
+          });
         })();
 
         // Actions panel: mirror header actions with shared handlers
