@@ -2159,6 +2159,37 @@
           const toggle = document.getElementById(toggleId);
           const body = document.getElementById(bodyId);
           if (!toggle || !body) return;
+          // Ensure chevron is on the left side, label next to it, right content grouped
+          if (toggle && toggle.dataset.leftChevronWired !== '1'){
+            const chevron = toggle.querySelector('[data-chevron]');
+            if (chevron){
+              // Build left and right groups
+              const leftGroup = document.createElement('span');
+              leftGroup.className = 'inline-flex items-center gap-2';
+              const rightGroup = document.createElement('span');
+              rightGroup.className = 'inline-flex items-center gap-2 ml-auto';
+              rightGroup.setAttribute('data-right-group','1');
+              // Normalize chevron spacing
+              chevron.classList.remove('ml-2');
+              if (!chevron.classList.contains('mr-2')) chevron.classList.add('mr-2');
+              // Identify a primary label element (first non-chevron element)
+              const children = Array.from(toggle.children);
+              const labelEl = children.find(el => el !== chevron);
+              // Rebuild structure: [leftGroup(chevron + label)] [rightGroup(rest)]
+              toggle.innerHTML = '';
+              if (labelEl){ leftGroup.appendChild(chevron); leftGroup.appendChild(labelEl); }
+              else { leftGroup.appendChild(chevron); }
+              // Move remaining original children into rightGroup
+              children.forEach(el => {
+                if (el !== chevron && el !== labelEl) rightGroup.appendChild(el);
+              });
+              toggle.appendChild(leftGroup);
+              toggle.appendChild(rightGroup);
+              // Adjust layout to left-justify
+              try { toggle.className = (toggle.className || '').replace('justify-between','justify-start'); } catch {}
+              toggle.dataset.leftChevronWired = '1';
+            }
+          }
           const chevron = toggle.querySelector('[data-chevron]');
           function apply(collapsed){
             if (collapsed){
