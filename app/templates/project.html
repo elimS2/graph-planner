@@ -105,6 +105,11 @@
                   </label>
                   <p id="linkHint" class="text-xs text-slate-500 hidden">Ctrl+Click node to open</p>
                 </div>
+                <div class="mt-1 flex items-center gap-2">
+                  <a id="selNodeLinkAnchor" href="#" target="_blank" rel="noopener noreferrer nofollow" class="text-xs text-blue-700 underline break-all hidden" aria-label="Open link">Open Link</a>
+                  <button id="copyNodeLink" type="button" class="text-xs px-2 py-0.5 rounded bg-slate-100 border">Copy</button>
+                  <span id="copyLinkFeedback" class="text-xs text-slate-500" aria-live="polite"></span>
+                </div>
               </div>
             </div>
           </div>
@@ -1111,6 +1116,7 @@
           const curLink = String(evt.target.data('link_url') || '');
           if (linkEl) linkEl.value = curLink;
           if (linkHint) { if (curLink) linkHint.classList.remove('hidden'); else linkHint.classList.add('hidden'); }
+          try { if (linkEl) linkEl.dispatchEvent(new Event('input', { bubbles: true })); } catch {}
           try {
             const lang = getCurrentLang();
             const out = document.getElementById('selNodeTitleTranslated');
@@ -1416,6 +1422,9 @@
           const input = document.getElementById('selNodeLinkUrl');
           const hint = document.getElementById('linkHint');
           const chk = document.getElementById('openInNewTab');
+          const anchor = document.getElementById('selNodeLinkAnchor');
+          const copyBtn = document.getElementById('copyNodeLink');
+          const copyFb = document.getElementById('copyLinkFeedback');
           if (!input) return;
           // initialize checkbox from storage
           if (chk){
@@ -1430,8 +1439,55 @@
                   if (n && n.nonempty()) n.data('link_open_in_new_tab', !!(resp && resp.data && resp.data.link_open_in_new_tab));
                 } catch {}
               }
+              // reflect target on anchor if visible
+              try { applyLinkUi((input.value||'').trim()); } catch {}
             });
           }
+
+          function parseValidHttpUrl(raw){
+            const s = (raw||'').trim();
+            if (!s) return null;
+            try {
+              const u = new URL(s);
+              if (u.protocol === 'http:' || u.protocol === 'https:') return u;
+            } catch {}
+            return null;
+          }
+
+          function shortUrlText(u){
+            try {
+              const host = u.hostname || '';
+              const path = (u.pathname || '').replace(/\/+/g, '/');
+              const pathShort = path.length > 1 ? path : '';
+              return host + pathShort;
+            } catch { return String(u); }
+          }
+
+          function applyLinkUi(raw){
+            const u = parseValidHttpUrl(raw);
+            const openNew = chk ? !!chk.checked : (localStorage.getItem('openLinkInNewTab') !== '0');
+            if (anchor){
+              if (u){
+                anchor.href = u.toString();
+                anchor.textContent = shortUrlText(u) || 'Open Link';
+                anchor.target = openNew ? '_blank' : '_self';
+                anchor.rel = 'noopener noreferrer nofollow';
+                anchor.classList.remove('hidden');
+                anchor.setAttribute('aria-label', `Open link to ${u.hostname}`);
+              } else {
+                anchor.href = '#';
+                anchor.textContent = 'Open Link';
+                anchor.classList.add('hidden');
+              }
+            }
+            if (hint){ if (raw) hint.classList.remove('hidden'); else hint.classList.add('hidden'); }
+            // simple invalid state on input
+            if (input){
+              if (raw && !u) input.classList.add('border-red-400'); else input.classList.remove('border-red-400');
+              if (!raw) input.classList.remove('border-red-400');
+            }
+          }
+
           async function commit(){
             if (!selectedNodeId) return;
             const raw = (input.value || '').trim();
@@ -1442,7 +1498,7 @@
               // update cy data and hint
               const n = cy.getElementById(String(selectedNodeId));
               if (n && n.nonempty()) n.data('link_url', url || null);
-              if (hint) { if (url) hint.classList.remove('hidden'); else hint.classList.add('hidden'); }
+              applyLinkUi(url);
             } catch (e) {
               const msg = (e && e.message) ? e.message : 'Invalid link URL';
               alert(msg);
@@ -1450,6 +1506,23 @@
           }
           input.addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ e.preventDefault(); input.blur(); } });
           input.addEventListener('blur', ()=>commit());
+          input.addEventListener('input', ()=>{ try { applyLinkUi((input.value||'').trim()); } catch {} });
+
+          if (copyBtn){
+            copyBtn.addEventListener('click', async () => {
+              const val = (input && input.value) ? input.value.trim() : '';
+              if (!val){ if (copyFb) copyFb.textContent = 'Empty URL'; return; }
+              try {
+                await navigator.clipboard.writeText(val);
+                if (copyFb) { copyFb.textContent = 'Copied'; setTimeout(()=>{ if (copyFb) copyFb.textContent=''; }, 1200); }
+              } catch {
+                if (copyFb) { copyFb.textContent = 'Copy failed'; setTimeout(()=>{ if (copyFb) copyFb.textContent=''; }, 1500); }
+              }
+            });
+          }
+
+          // initial apply
+          try { applyLinkUi((input.value||'').trim()); } catch {}
         })();
 
         document.getElementById('btnDeleteNodePanel').addEventListener('click', async () => {
