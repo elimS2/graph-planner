@@ -912,6 +912,9 @@
 
         // WYSIWYG comment editor (Quill)
         let quill = null;
+        // Inline editor for existing comments
+        let quillEdit = null;
+        let currentUserId = null;
         function initQuillOnce(){
           if (quill) return;
           try {
@@ -925,6 +928,12 @@
             });
           } catch {}
         }
+        async function ensureCurrentUser(){
+          if (currentUserId !== null) return currentUserId;
+          try { const me = await apiMe(); currentUserId = (me && me.id) ? String(me.id) : null; } catch { currentUserId = null; }
+          return currentUserId;
+        }
+        function destroyQuillEdit(){ try { if (quillEdit) { quillEdit.disable(); quillEdit = null; } } catch {} }
 
         const selEl = document.getElementById('selNode');
         let selectedNodeId = null;
@@ -943,6 +952,7 @@
             fetch(`/api/v1/nodes/${nodeId}/time-entries`).then(r=>r.json()),
             fetch(`/api/v1/nodes/${nodeId}/cost-entries`).then(r=>r.json()),
           ]);
+          await ensureCurrentUser();
           const commentsList = document.getElementById('commentsList');
           commentsList.innerHTML = '';
           c.data.forEach(x => {
@@ -958,6 +968,84 @@
             }
             const time = document.createElement('span'); time.className = 'ml-2 text-xs text-slate-500'; time.textContent = formatDate(x.created_at);
             li.appendChild(body); li.appendChild(time);
+
+            // Actions for own comments
+            if (currentUserId && x.user_id && String(x.user_id) === String(currentUserId)) {
+              const actions = document.createElement('div');
+              actions.className = 'mt-1 flex gap-2';
+              const btnEdit = document.createElement('button'); btnEdit.type = 'button'; btnEdit.className = 'text-xs text-blue-600 underline'; btnEdit.textContent = 'Edit';
+              const btnDel = document.createElement('button'); btnDel.type = 'button'; btnDel.className = 'text-xs text-red-600 underline'; btnDel.textContent = 'Delete';
+              actions.appendChild(btnEdit); actions.appendChild(btnDel);
+              li.appendChild(actions);
+
+              btnEdit.addEventListener('click', () => {
+                // Enter edit mode: replace body with inline editor and show Save/Cancel
+                try {
+                  // Clear body container
+                  const editWrap = document.createElement('div');
+                  editWrap.className = 'mt-1';
+                  const editArea = document.createElement('div');
+                  editArea.className = 'border rounded';
+                  const editAreaInner = document.createElement('div');
+                  editAreaInner.className = 'h-24';
+                  editArea.appendChild(editAreaInner);
+                  const ctrl = document.createElement('div');
+                  ctrl.className = 'mt-1 flex gap-2';
+                  const btnSave = document.createElement('button'); btnSave.type = 'button'; btnSave.className = 'px-2 py-1 text-xs rounded bg-blue-600 text-white'; btnSave.textContent = 'Save';
+                  const btnCancel = document.createElement('button'); btnCancel.type = 'button'; btnCancel.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800'; btnCancel.textContent = 'Cancel';
+                  ctrl.appendChild(btnSave); ctrl.appendChild(btnCancel);
+
+                  // Hide existing content while editing
+                  body.classList.add('hidden');
+                  time.classList.add('hidden');
+                  actions.classList.add('hidden');
+                  li.appendChild(editWrap);
+                  editWrap.appendChild(editArea);
+                  editWrap.appendChild(ctrl);
+
+                  // Init edit Quill
+                  destroyQuillEdit();
+                  const toolbarOpts = [
+                    ['bold','italic','underline','strike'],
+                    [{ 'header': [1,2,3,false] }],
+                    [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+                    ['blockquote','code-block','link'],
+                    ['clean']
+                  ];
+                  quillEdit = new Quill(editAreaInner, { modules: { toolbar: toolbarOpts }, theme: 'snow', placeholder: 'Edit comment' });
+                  if (x.body_html) {
+                    quillEdit.root.innerHTML = x.body_html || '';
+                  } else {
+                    try { quillEdit.setText(String(x.body || '')); } catch {}
+                  }
+
+                  btnCancel.addEventListener('click', async () => {
+                    destroyQuillEdit();
+                    await refreshLists(selectedNodeId);
+                  });
+                  btnSave.addEventListener('click', async () => {
+                    try {
+                      let html = quillEdit ? (quillEdit.root.innerHTML || '') : '';
+                      let text = quillEdit ? (quillEdit.getText() || '').trim() : '';
+                      if (!text) { alert('Comment cannot be empty'); return; }
+                      await patchJSON(`/api/v1/comments/${x.id}`, { body: text, body_html: html });
+                      destroyQuillEdit();
+                      await refreshLists(selectedNodeId);
+                    } catch (e) {
+                      alert(String(e && e.message ? e.message : 'Failed to update comment'));
+                    }
+                  });
+                } catch {}
+              });
+
+              btnDel.addEventListener('click', async () => {
+                if (!confirm('Delete this comment?')) return;
+                try {
+                  await del(`/api/v1/comments/${x.id}`);
+                  await refreshLists(selectedNodeId);
+                } catch { alert('Failed to delete'); }
+              });
+            }
             commentsList.appendChild(li);
           });
           const timeList = document.getElementById('timeList');

@@ -121,6 +121,69 @@ def health():
         }
     })
 
+###################################################################################################
+# Comment management: update and delete
+###################################################################################################
+
+def _is_admin(user: User | None) -> bool:
+    try:
+        return bool(user and getattr(user, "role", "user") == "admin")
+    except Exception:
+        return False
+
+
+def _can_manage_comment(user: User | None, comment: Comment) -> bool:
+    try:
+        uid = user.get_id() if user and hasattr(user, "get_id") else None  # type: ignore[attr-defined]
+    except Exception:
+        uid = None
+    return bool((uid and uid == comment.user_id) or _is_admin(user))
+
+
+@bp.patch("/comments/<id>")
+@login_required
+def update_comment(id: str):
+    item = db.session.get(Comment, id)
+    if not item:
+        return jsonify({"errors": [{"status": 404, "title": "Not Found"}]}), 404
+    if not _can_manage_comment(current_user, item):  # type: ignore[arg-type]
+        return jsonify({"errors": [{"status": 403, "title": "Forbidden"}]}), 403
+    payload = request.get_json(force=True) or {}
+    # Accept only allowed fields
+    allowed = {}
+    if "body" in payload:
+        try:
+            allowed["body"] = str(payload.get("body") or "").strip()
+        except Exception:
+            allowed["body"] = ""
+    if "body_html" in payload:
+        allowed["body_html"] = sanitize_comment_html(payload.get("body_html"))
+    # Validate via schema (partial)
+    try:
+        data = CommentSchema(partial=True).load(allowed)
+    except ValidationError as ve:
+        return jsonify({"errors": [{"status": 400, "title": "Invalid payload", "detail": ve.messages}]}), 400
+    # Prevent empty updates
+    if ("body" in allowed and (allowed.get("body") or "").strip() == "") and ("body_html" not in allowed or not allowed.get("body_html")):
+        return jsonify({"errors": [{"status": 400, "title": "Empty content"}]}), 400
+    for k, v in data.items():
+        setattr(item, k, v)
+    db.session.commit()
+    return jsonify({"data": CommentSchema().dump(item)})
+
+
+@bp.delete("/comments/<id>")
+@login_required
+def delete_comment(id: str):
+    item = db.session.get(Comment, id)
+    if not item:
+        return jsonify({"errors": [{"status": 404, "title": "Not Found"}]}), 404
+    if not _can_manage_comment(current_user, item):  # type: ignore[arg-type]
+        return jsonify({"errors": [{"status": 403, "title": "Forbidden"}]}), 403
+    db.session.delete(item)
+    db.session.commit()
+    return ("", 204)
+
 
 # Projects CRUD
 @bp.get("/projects")
