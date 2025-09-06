@@ -79,6 +79,7 @@
         <aside id="sidebar" class="bg-white rounded-l-none rounded shadow p-3 space-y-3 overflow-auto" style="width: 384px;">
           <div class="flex items-center gap-2 mb-1">
             <button id="tabTask" class="px-2 py-1 text-xs rounded bg-slate-800 text-white">Task</button>
+            <button id="tabActions" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Actions</button>
             <button id="tabSettings" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Settings</button>
           </div>
           <div id="taskPanel" class="space-y-3">
@@ -291,6 +292,27 @@
             </div>
           </div>
 
+          </div>
+
+          <div id="actionsPanel" class="space-y-3 hidden">
+            <div id="actionsMainBlock" class="rounded border p-2 bg-white space-y-2">
+              <h3 class="font-medium text-sm">Actions</h3>
+              <div class="flex flex-wrap gap-2">
+                <button id="btnAddNodePanel" class="px-2 py-1 text-xs rounded bg-blue-600 text-white" title="Add node" aria-label="Add node">+ Node</button>
+                <button id="btnAddEdgePanel" class="px-2 py-1 text-xs rounded bg-indigo-600 text-white" title="Add edge" aria-label="Add edge">+ Edge</button>
+                <button id="btnCriticalPathPanel" class="px-2 py-1 text-xs rounded bg-teal-600 text-white" title="Critical path" aria-label="Critical path">Critical Path</button>
+                <button id="btnFitPanel" class="px-2 py-1 text-xs rounded bg-slate-600 text-white" title="Fit graph" aria-label="Fit graph">Fit</button>
+                <button id="btnResetViewPanel" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800" title="Reset view" aria-label="Reset view">Reset View</button>
+                <button id="btnGroupPanel" class="px-2 py-1 text-xs rounded bg-purple-600 text-white" title="Group selected" aria-label="Group selected">Group</button>
+                <button id="btnUngroupPanel" class="px-2 py-1 text-xs rounded bg-purple-500 text-white" title="Ungroup selected" aria-label="Ungroup selected">Ungroup</button>
+                <button id="btnCollapsePanel" class="px-2 py-1 text-xs rounded bg-fuchsia-600 text-white" title="Collapse group" aria-label="Collapse group">Collapse</button>
+                <button id="btnExpandPanel" class="px-2 py-1 text-xs rounded bg-fuchsia-500 text-white" title="Expand group" aria-label="Expand group">Expand</button>
+                <button id="btnScreenshotPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Screenshot" aria-label="Screenshot">Screenshot</button>
+              </div>
+              <div class="flex items-center justify-end pt-1">
+                <button id="btnActionsResetVisibility" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800" title="Reset header visibility to defaults" aria-label="Reset header visibility to defaults">Reset to defaults</button>
+              </div>
+            </div>
           </div>
 
           <div id="settingsPanel" class="space-y-3 hidden">
@@ -2152,10 +2174,12 @@
           toggleBtn.addEventListener('click', () => { setTimeout(() => { syncResizer(); cy.resize(); }, 0); });
         })();
 
-        // Panel tabs: Task | Settings
+        // Panel tabs: Task | Actions | Settings
         const tabTask = document.getElementById('tabTask');
+        const tabActions = document.getElementById('tabActions');
         const tabSettings = document.getElementById('tabSettings');
         const taskPanel = document.getElementById('taskPanel');
+        const actionsPanel = document.getElementById('actionsPanel');
         const settingsPanel = document.getElementById('settingsPanel');
         // ensure declared before any call path
         let settingsLoaded = false;
@@ -2226,11 +2250,21 @@
             if (k === 'enter' || k === ' '){ e.preventDefault(); flip(); }
           });
         }
-        function showTask(){
-          taskPanel.classList.remove('hidden');
-          settingsPanel.classList.add('hidden');
-          tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
+        function resetTabStyles(){
+          tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
+          if (tabActions) tabActions.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
           tabSettings.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
+        }
+        function hideAllPanels(){
+          taskPanel.classList.add('hidden');
+          if (actionsPanel) actionsPanel.classList.add('hidden');
+          settingsPanel.classList.add('hidden');
+        }
+        function showTask(){
+          hideAllPanels();
+          taskPanel.classList.remove('hidden');
+          resetTabStyles();
+          tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
           localStorage.setItem('sidebarTab', 'task');
           // Initialize Task Panel collapsible sections (idempotent)
           wireCollapsibleSection({ toggleId: 'taskSelectionLinkToggle', bodyId: 'taskSelectionLinkBody', storageKey: 'sidebar.task.selectionLink.collapsed', defaultCollapsed: false });
@@ -2246,10 +2280,17 @@
           applyPanelOrder(taskPanel, ORDER_KEYS.task, DEFAULT_TASK_IDS);
           wireReorderablePanel(taskPanel, ORDER_KEYS.task, DEFAULT_TASK_IDS);
         }
+        function showActions(){
+          hideAllPanels();
+          if (actionsPanel) actionsPanel.classList.remove('hidden');
+          resetTabStyles();
+          if (tabActions) tabActions.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
+          localStorage.setItem('sidebarTab', 'actions');
+        }
         function showSettings(){
-          taskPanel.classList.add('hidden');
+          hideAllPanels();
           settingsPanel.classList.remove('hidden');
-          tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
+          resetTabStyles();
           tabSettings.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
           localStorage.setItem('sidebarTab', 'settings');
           // Initialize collapsible sections (idempotent)
@@ -2265,10 +2306,13 @@
           ensureSettingsLoaded();
         }
         tabTask.addEventListener('click', showTask);
+        if (tabActions) tabActions.addEventListener('click', showActions);
         tabSettings.addEventListener('click', showSettings);
         // restore active tab
         const savedTab = localStorage.getItem('sidebarTab') || 'task';
-        if (savedTab === 'settings') showSettings(); else showTask();
+        if (savedTab === 'settings') showSettings();
+        else if (savedTab === 'actions') showActions();
+        else showTask();
 
         // Settings: fetch and render
         async function ensureSettingsLoaded(){
@@ -2682,6 +2726,90 @@
               finally { runBtn.disabled = false; runBtn.textContent = old; runBtn.removeAttribute('aria-busy'); }
             });
           }
+        })();
+
+        // Actions panel: mirror header actions with shared handlers
+        (function wireActionsPanel(){
+          try {
+            // Single-column layout
+            const list = document.querySelector('#actionsMainBlock .flex');
+            if (list) list.className = 'flex flex-col gap-2';
+
+            // Registry for visibility control
+            const ACTIONS = [
+              { headerId: 'btnAddNode', panelId: 'btnAddNodePanel', storageKey: 'actions.header.show.btnAddNode', defaultShow: true },
+              { headerId: 'btnAddEdge', panelId: 'btnAddEdgePanel', storageKey: 'actions.header.show.btnAddEdge', defaultShow: true },
+              { headerId: 'btnCriticalPath', panelId: 'btnCriticalPathPanel', storageKey: 'actions.header.show.btnCriticalPath', defaultShow: true },
+              { headerId: 'btnFit', panelId: 'btnFitPanel', storageKey: 'actions.header.show.btnFit', defaultShow: true },
+              { headerId: 'btnResetView', panelId: 'btnResetViewPanel', storageKey: 'actions.header.show.btnResetView', defaultShow: true },
+              { headerId: 'btnGroup', panelId: 'btnGroupPanel', storageKey: 'actions.header.show.btnGroup', defaultShow: true },
+              { headerId: 'btnUngroup', panelId: 'btnUngroupPanel', storageKey: 'actions.header.show.btnUngroup', defaultShow: true },
+              { headerId: 'btnCollapse', panelId: 'btnCollapsePanel', storageKey: 'actions.header.show.btnCollapse', defaultShow: true },
+              { headerId: 'btnExpand', panelId: 'btnExpandPanel', storageKey: 'actions.header.show.btnExpand', defaultShow: true },
+              { headerId: 'btnScreenshot', panelId: 'btnScreenshotPanel', storageKey: 'actions.header.show.btnScreenshot', defaultShow: true },
+            ];
+            const isShownInHeader = (key, def) => { try { const v = localStorage.getItem(key); if (v==='1') return true; if (v==='0') return false; } catch {} return !!def; };
+            const setShownInHeader = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch {} };
+            const applyHeaderVisibility = () => {
+              ACTIONS.forEach(a => {
+                const el = document.getElementById(a.headerId);
+                if (!el) return;
+                const show = isShownInHeader(a.storageKey, a.defaultShow);
+                if (show) el.classList.remove('hidden'); else el.classList.add('hidden');
+              });
+            };
+            const resetHeaderVisibilityToDefaults = () => {
+              ACTIONS.forEach(a => { setShownInHeader(a.storageKey, !!a.defaultShow); });
+              applyHeaderVisibility();
+              // sync checkboxes UI
+              ACTIONS.forEach(a => {
+                const btn = document.getElementById(a.panelId);
+                if (!btn) return;
+                const row = btn.parentElement;
+                const chk = row && row.querySelector('input[type="checkbox"]');
+                if (chk) chk.checked = !!a.defaultShow;
+              });
+            };
+
+            // Wrap each row with a checkbox
+            ACTIONS.forEach(a => {
+              const btn = document.getElementById(a.panelId);
+              if (!btn || btn.dataset.rowWired === '1') return;
+              btn.dataset.rowWired = '1';
+              if (!btn.className.includes('w-full')) btn.className += ' w-full';
+              const row = document.createElement('div'); row.className = 'flex items-center gap-2';
+              const spacer = document.createElement('div'); spacer.className = 'flex-1';
+              const lab = document.createElement('label'); lab.className = 'inline-flex items-center gap-2 text-xs text-slate-600 whitespace-nowrap';
+              const chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = isShownInHeader(a.storageKey, a.defaultShow); chk.setAttribute('aria-label','Show in header');
+              const cap = document.createElement('span'); cap.textContent = 'Show in header';
+              lab.appendChild(chk); lab.appendChild(cap);
+              btn.parentElement.insertBefore(row, btn);
+              row.appendChild(btn); row.appendChild(spacer); row.appendChild(lab);
+              chk.addEventListener('change', () => { setShownInHeader(a.storageKey, !!chk.checked); applyHeaderVisibility(); });
+            });
+
+            // Initial visibility sync
+            applyHeaderVisibility();
+
+            // Reset to defaults
+            const resetBtn = document.getElementById('btnActionsResetVisibility');
+            if (resetBtn && resetBtn.dataset.wired !== '1'){
+              resetBtn.dataset.wired = '1';
+              resetBtn.addEventListener('click', resetHeaderVisibilityToDefaults);
+            }
+
+            // Mirror handlers
+            const addNodeP = document.getElementById('btnAddNodePanel'); if (addNodeP && addNodeP.dataset.wired !== '1') { addNodeP.dataset.wired='1'; addNodeP.addEventListener('click', ()=> { const b=document.getElementById('btnAddNode'); if (b) b.click(); }); }
+            const addEdgeP = document.getElementById('btnAddEdgePanel'); if (addEdgeP && addEdgeP.dataset.wired !== '1') { addEdgeP.dataset.wired='1'; addEdgeP.addEventListener('click', ()=> { const b=document.getElementById('btnAddEdge'); if (b) b.click(); }); }
+            const cpP = document.getElementById('btnCriticalPathPanel'); if (cpP && cpP.dataset.wired !== '1') { cpP.dataset.wired='1'; cpP.addEventListener('click', ()=> { const b=document.getElementById('btnCriticalPath'); if (b) b.click(); }); }
+            const fitP = document.getElementById('btnFitPanel'); if (fitP && fitP.dataset.wired !== '1') { fitP.dataset.wired='1'; fitP.addEventListener('click', ()=> { try { cy.fit(); } catch {} }); }
+            const resetP = document.getElementById('btnResetViewPanel'); if (resetP && resetP.dataset.wired !== '1') { resetP.dataset.wired='1'; resetP.addEventListener('click', ()=> { try { showAllAndFit(); } catch {} }); }
+            const groupP = document.getElementById('btnGroupPanel'); if (groupP && groupP.dataset.wired !== '1') { groupP.dataset.wired='1'; groupP.addEventListener('click', ()=> { const b=document.getElementById('btnGroup'); if (b) b.click(); }); }
+            const ungroupP = document.getElementById('btnUngroupPanel'); if (ungroupP && ungroupP.dataset.wired !== '1') { ungroupP.dataset.wired='1'; ungroupP.addEventListener('click', ()=> { const b=document.getElementById('btnUngroup'); if (b) b.click(); }); }
+            const collapseP = document.getElementById('btnCollapsePanel'); if (collapseP && collapseP.dataset.wired !== '1') { collapseP.dataset.wired='1'; collapseP.addEventListener('click', ()=> { const b=document.getElementById('btnCollapse'); if (b) b.click(); }); }
+            const expandP = document.getElementById('btnExpandPanel'); if (expandP && expandP.dataset.wired !== '1') { expandP.dataset.wired='1'; expandP.addEventListener('click', ()=> { const b=document.getElementById('btnExpand'); if (b) b.click(); }); }
+            const shotP = document.getElementById('btnScreenshotPanel'); if (shotP && shotP.dataset.wired !== '1') { shotP.dataset.wired='1'; shotP.addEventListener('click', ()=> { const b=document.getElementById('btnScreenshot'); if (b) b.click(); }); }
+          } catch {}
         })();
       })();
     </script>
