@@ -494,6 +494,114 @@
         localStorage.setItem('lodEnabled', enabled ? '1' : '0');
       }
 
+      // Sidebar reorder helpers (top-level)
+      const ORDER_KEYS = { task: 'sidebar.task.order', settings: 'sidebar.settings.order' };
+      const DEFAULT_TASK_IDS = ['taskSelectionBlock','taskLinkBlock','taskStatusPriorityBlock','taskVisibilityBlock','taskCommentsBlock','taskHistoryBlock','taskTimeBlock','taskCostsBlock','taskDangerBlock'];
+      const DEFAULT_SETTINGS_IDS = ['lodBlock','serverInfo','envBlock','exportImportBlock','visibilityBlock','translationBlock'];
+      function loadOrder(key){ try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
+      function saveOrder(key, ids){ try { localStorage.setItem(key, JSON.stringify(ids || [])); } catch {} }
+      function applyPanelOrder(panelEl, storageKey, defaultIds){
+        try {
+          if (!panelEl) return;
+          const saved = Array.isArray(loadOrder(storageKey)) ? loadOrder(storageKey) : [];
+          const allowed = new Set(defaultIds);
+          const filteredSaved = saved.filter(id => allowed.has(id));
+          const missing = defaultIds.filter(id => !filteredSaved.includes(id));
+          const finalOrder = [...filteredSaved, ...missing];
+          finalOrder.forEach(id=>{
+            const el = document.getElementById(id);
+            if (el && el.parentElement === panelEl){ panelEl.appendChild(el); }
+          });
+        } catch {}
+      }
+      function getPanelIds(panelEl, defaultIds){
+        try {
+          const ids = [];
+          defaultIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.parentElement === panelEl) ids.push(id);
+          });
+          return ids;
+        } catch { return []; }
+      }
+      function wireReorderablePanel(panelEl, storageKey, defaultIds){
+        try {
+          if (!panelEl || panelEl.dataset.reorderWired === '1') return;
+          panelEl.dataset.reorderWired = '1';
+          const allowed = new Set(defaultIds);
+          // Inject drag handles and set draggable on blocks
+          defaultIds.forEach(id=>{
+            const block = document.getElementById(id);
+            if (!block || block.parentElement !== panelEl) return;
+            block.setAttribute('data-panel-block','1');
+            const headerBtn = block.querySelector('button[id$="Toggle"]');
+            if (headerBtn && !headerBtn.querySelector('[data-drag-handle]')){
+              const handle = document.createElement('span');
+              handle.setAttribute('data-drag-handle','1');
+              handle.setAttribute('title','Reorder section');
+              handle.setAttribute('draggable','true');
+              handle.className = 'ml-2 text-slate-400 hover:text-slate-600 cursor-grab select-none';
+              handle.textContent = '⋮⋮';
+              // prevent header click/collapse when starting drag from handle
+              handle.addEventListener('mousedown', (e)=>{ e.stopPropagation(); });
+              handle.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); });
+              headerBtn.appendChild(handle);
+            }
+          });
+          const state = { draggingId: null, placeholder: null };
+          panelEl.addEventListener('dragstart', (e)=>{
+            const src = e.target && e.target.closest ? e.target.closest('[data-panel-block]') : null;
+            if (!src || src.parentElement !== panelEl || !allowed.has(src.id)){ e.preventDefault(); return; }
+            state.draggingId = src.id;
+            src.classList.add('opacity-60');
+            const ph = document.createElement('div');
+            ph.className = 'border-2 border-dashed border-slate-300 rounded my-1';
+            ph.style.height = src.offsetHeight + 'px';
+            state.placeholder = ph;
+            src.after(ph);
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', src.id); } catch {}
+          });
+          panelEl.addEventListener('dragover', (e)=>{
+            if (!state.draggingId) return;
+            e.preventDefault();
+            let target = e.target && e.target.closest ? e.target.closest('[data-panel-block]') : null;
+            if (!target) return;
+            // Ensure we target the top-level block inside this panel
+            while (target && (target.parentElement !== panelEl || !allowed.has(target.id))) {
+              target = target.parentElement;
+            }
+            if (!target || target.id === state.draggingId) return;
+            const rect = target.getBoundingClientRect();
+            const before = (e.clientY - rect.top) < rect.height / 2;
+            if (state.placeholder){
+              if (before) { target.before(state.placeholder); }
+              else { target.after(state.placeholder); }
+            }
+          });
+          panelEl.addEventListener('drop', (e)=>{
+            if (!state.draggingId || !state.placeholder) return;
+            e.preventDefault();
+            const dragged = document.getElementById(state.draggingId);
+            if (dragged && state.placeholder.parentElement === panelEl){
+              state.placeholder.replaceWith(dragged);
+              const ids = getPanelIds(panelEl, defaultIds);
+              saveOrder(storageKey, ids);
+            }
+            if (dragged) dragged.classList.remove('opacity-60');
+            state.draggingId = null;
+            state.placeholder = null;
+          });
+          panelEl.addEventListener('dragend', ()=>{
+            const dragged = state.draggingId ? document.getElementById(state.draggingId) : null;
+            if (dragged) dragged.classList.remove('opacity-60');
+            if (state.placeholder) { try { state.placeholder.remove(); } catch {} }
+            state.draggingId = null;
+            state.placeholder = null;
+          });
+        } catch {}
+      }
+
       function wireAuthHeader(){
         const emailEl = document.getElementById('userEmail');
         const btnLogin = document.getElementById('btnLogin');
@@ -2097,6 +2205,9 @@
           wireCollapsibleSection({ toggleId: 'taskTimeToggle', bodyId: 'taskTimeBody', storageKey: 'sidebar.task.time.collapsed', defaultCollapsed: true });
           wireCollapsibleSection({ toggleId: 'taskCostsToggle', bodyId: 'taskCostsBody', storageKey: 'sidebar.task.costs.collapsed', defaultCollapsed: true });
           wireCollapsibleSection({ toggleId: 'taskDangerToggle', bodyId: 'taskDangerBody', storageKey: 'sidebar.task.danger.collapsed', defaultCollapsed: true });
+          // Apply and wire reorder behavior
+          applyPanelOrder(taskPanel, ORDER_KEYS.task, DEFAULT_TASK_IDS);
+          wireReorderablePanel(taskPanel, ORDER_KEYS.task, DEFAULT_TASK_IDS);
         }
         function showSettings(){
           taskPanel.classList.add('hidden');
@@ -2111,6 +2222,9 @@
           wireCollapsibleSection({ toggleId: 'translationToggle', bodyId: 'translationBody', storageKey: 'sidebar.settings.translation.collapsed' });
           wireCollapsibleSection({ toggleId: 'visibilityToggle', bodyId: 'visibilityBody', storageKey: 'sidebar.settings.visibility.collapsed' });
           wireCollapsibleSection({ toggleId: 'zoomToggle', bodyId: 'zoomBody', storageKey: 'sidebar.settings.zoom.collapsed' });
+          // Apply and wire reorder behavior
+          applyPanelOrder(settingsPanel, ORDER_KEYS.settings, DEFAULT_SETTINGS_IDS);
+          wireReorderablePanel(settingsPanel, ORDER_KEYS.settings, DEFAULT_SETTINGS_IDS);
           ensureSettingsLoaded();
         }
         tabTask.addEventListener('click', showTask);
