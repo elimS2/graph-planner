@@ -785,6 +785,12 @@
 
         const selEl = document.getElementById('selNode');
         let selectedNodeId = null;
+        const oversizedOpenFiredForNodeIds = new Set();
+        let lastOversizeDebugAt = 0;
+        const prefetchedOrigins = new Set();
+        const prefetchedUrls = new Set();
+        const specPrefetchUrls = new Set();
+        const specPrerenderUrls = new Set();
         let selectedEdgeId = null;
         async function refreshLists(nodeId) {
           const lang = getCurrentLang();
@@ -860,6 +866,12 @@
             }
           } catch {}
           selectedNodeId = evt.target.data('id');
+          try { oversizedOpenFiredForNodeIds.delete(String(selectedNodeId)); } catch {}
+          try { checkAndAutoOpenLinkOnOversized(); } catch {}
+          try {
+            const u = String(evt.target.data('link_url') || '').trim();
+            if (u) { prewarmForUrl(u); tryQueuePrerender(u); }
+          } catch {}
           selEl.textContent = selectedNodeId;
           const titleEl = document.getElementById('selNodeTitle');
           if (titleEl) titleEl.textContent = String(evt.target.data('label') || '—');
@@ -1461,8 +1473,174 @@
         }
         cy.on('zoom', applyLOD);
         applyLOD();
+        try { checkAndAutoOpenLinkOnOversized(); } catch {}
+
+        // Pick a focus node when none is selected: prioritize node under viewport center with a link
+        function findFocusedNodeForZoom(){
+          try {
+            const all = cy.nodes();
+            if (!all || all.length === 0) return null;
+            const vpW = cy.width();
+            const vpH = cy.height();
+            const cx = vpW / 2;
+            const cyy = vpH / 2;
+            let best = null;
+            let bestRank = null; // tuple: [insideCenter (1|0), sizeScore, -distance]
+            all.forEach(n => {
+              try {
+                if (!n || !n.nonempty()) return;
+                if (n.style('display') === 'none') return;
+                const url = String(n.data('link_url') || '').trim();
+                if (!url) return; // focus only on nodes that can open
+                const box = n.renderedBoundingBox();
+                const inside = (box.x1 <= cx && cx <= box.x2 && box.y1 <= cyy && cyy <= box.y2) ? 1 : 0;
+                const sizeScore = ((box.w / vpW) + (box.h / vpH)) / 2; // 0..~
+                const nx = (box.x1 + box.x2) / 2; const ny = (box.y1 + box.y2) / 2;
+                const dx = nx - cx; const dy = ny - cyy;
+                const diag = Math.sqrt(vpW*vpW + vpH*vpH) || 1;
+                const distNorm = Math.sqrt(dx*dx + dy*dy) / diag; // 0..~1
+                const rank = [inside, sizeScore, -distNorm];
+                if (!bestRank || rank[0] > bestRank[0] || (rank[0] === bestRank[0] && (rank[1] > bestRank[1] || (rank[1] === bestRank[1] && rank[2] > bestRank[2])))){
+                  best = n; bestRank = rank;
+                }
+              } catch {}
+            });
+            return best ? String(best.id()) : null;
+          } catch { return null; }
+        }
+
+        function prewarmForUrl(rawUrl){
+          try {
+            const url = String(rawUrl || '').trim();
+            if (!url) return;
+            if (prefetchedUrls.has(url)) return;
+            prefetchedUrls.add(url);
+            // DNS Prefetch & Preconnect for origin
+            try {
+              const u = new URL(url, window.location.href);
+              const origin = u.origin;
+              if (!prefetchedOrigins.has(origin)){
+                prefetchedOrigins.add(origin);
+                const l1 = document.createElement('link'); l1.rel = 'dns-prefetch'; l1.href = origin; document.head.appendChild(l1);
+                const l2 = document.createElement('link'); l2.rel = 'preconnect'; l2.href = origin; l2.crossOrigin = 'anonymous'; document.head.appendChild(l2);
+              }
+            } catch {}
+            // Soft prefetch (low priority)
+            try {
+              const l3 = document.createElement('link'); l3.rel = 'prefetch'; l3.href = url; l3.as = 'document'; l3.crossOrigin = 'anonymous'; document.head.appendChild(l3);
+            } catch {}
+            // Also enqueue Speculation Rules prefetch (works even if unsupported; browser will ignore)
+            try {
+              const u = new URL(url, window.location.href);
+              const href = u.href;
+              if (!specPrefetchUrls.has(href)){
+                specPrefetchUrls.add(href);
+                updateSpeculationRulesScript();
+              }
+            } catch {}
+          } catch {}
+        }
+
+        function updateSpeculationRulesScript(){
+          try {
+            const prefetch = Array.from(specPrefetchUrls);
+            const prerender = Array.from(specPrerenderUrls);
+            const obj = {};
+            if (prefetch.length) obj.prefetch = [{ source: 'list', urls: prefetch }];
+            if (prerender.length) obj.prerender = [{ source: 'list', urls: prerender }];
+            let el = document.getElementById('speculationRulesDynamic');
+            if (!el){
+              el = document.createElement('script');
+              el.type = 'speculationrules';
+              el.id = 'speculationRulesDynamic';
+              document.head.appendChild(el);
+            }
+            el.textContent = JSON.stringify(obj);
+          } catch {}
+        }
+
+        function tryQueuePrerender(rawUrl){
+          try {
+            const url = String(rawUrl || '').trim();
+            if (!url) return;
+            const u = new URL(url, window.location.href);
+            if (u.origin !== window.location.origin) return; // prerender: restrict to same-origin for safety/compatibility
+            const href = u.href;
+            if (specPrerenderUrls.has(href)) return;
+            specPrerenderUrls.add(href);
+            updateSpeculationRulesScript();
+          } catch {}
+        }
+
+        // Auto-open link when selected (or focused) node becomes large relative to viewport
+        function checkAndAutoOpenLinkOnOversized(){
+          try {
+            let idToCheck = selectedNodeId;
+            if (!idToCheck) { idToCheck = findFocusedNodeForZoom(); }
+            if (!idToCheck) return;
+            const n = cy.getElementById(String(idToCheck));
+            if (!n || !n.nonempty()) return;
+            const url = String(n.data('link_url') || '').trim();
+            if (!url) return;
+            const box = n.renderedBoundingBox();
+            const vpW = cy.width();
+            const vpH = cy.height();
+            // Primary strict threshold and secondary relaxed threshold
+            const RATIO_TH_PRIMARY = 0.98; // ~full-screen
+            const RATIO_TH_SECONDARY = 0.6; // large portion of the screen
+            const MAX_ZOOM_OPEN_LEVEL = 47.5; // near-custom max 50
+            const primaryOversized = (box.w >= vpW * RATIO_TH_PRIMARY) || (box.h >= vpH * RATIO_TH_PRIMARY);
+            const secondaryOversized = (box.w >= vpW * RATIO_TH_SECONDARY) || (box.h >= vpH * RATIO_TH_SECONDARY);
+            const nearMaxZoom = (cy.zoom() >= MAX_ZOOM_OPEN_LEVEL);
+            const shouldOpen = primaryOversized || (nearMaxZoom && secondaryOversized);
+            // Prewarm a bit earlier than open trigger
+            try {
+              const PREWARM_RATIO = 0.4; // gentle
+              const PRERENDER_RATIO = 0.8; // aggressive: when very likely to navigate soon
+              const nearOpen = (box.w >= vpW * PREWARM_RATIO) || (box.h >= vpH * PREWARM_RATIO) || nearMaxZoom;
+              if (nearOpen) prewarmForUrl(url);
+              const veryLikely = primaryOversized || (box.w >= vpW * PRERENDER_RATIO) || (box.h >= vpH * PRERENDER_RATIO) || nearMaxZoom;
+              if (veryLikely) tryQueuePrerender(url);
+            } catch {}
+            // Debug logs (enable with localStorage.setItem('oversizeDebug','1'))
+            try {
+              if (localStorage.getItem('oversizeDebug') === '1'){
+                const now = Date.now();
+                if (now - lastOversizeDebugAt > 120) {
+                  lastOversizeDebugAt = now;
+                  console.log('[OversizeDebug]', {
+                    selectedNodeId,
+                    focusNodeId: idToCheck,
+                    zoom: cy.zoom(),
+                    box, vpW, vpH,
+                    primaryOversized, secondaryOversized, nearMaxZoom, shouldOpen,
+                    fired: oversizedOpenFiredForNodeIds.has(String(idToCheck))
+                  });
+                }
+              }
+            } catch {}
+            if (!shouldOpen) return;
+            const id = String(idToCheck);
+            if (oversizedOpenFiredForNodeIds.has(id)) return;
+            oversizedOpenFiredForNodeIds.add(id);
+            // Force open in current tab regardless of per-node preference
+            location.assign(url);
+          } catch {}
+        }
+        cy.on('zoom', checkAndAutoOpenLinkOnOversized);
 
         // Reset helpers
+        // Ensure auto-open can trigger again after browser back/forward (BFCache restore)
+        try {
+          window.addEventListener('pageshow', () => {
+            try {
+              oversizedOpenFiredForNodeIds.clear();
+              lastOversizeDebugAt = 0;
+              // Optional: clear speculative caches to refresh preconnect/prefetch state
+              try { prefetchedOrigins.clear(); prefetchedUrls.clear(); specPrefetchUrls.clear(); specPrerenderUrls.clear(); updateSpeculationRulesScript(); } catch {}
+            } catch {}
+          });
+        } catch {}
         function visibleCount(){
           let shown = 0; cy.nodes().forEach(n=>{ if (n.style('display') !== 'none' && !n.data('origParent')) shown++; }); return shown;
         }
@@ -1755,7 +1933,8 @@
         // Zoom controls with smooth animation
         function smoothZoom(factor){
           const target = cy.zoom() * factor;
-          cy.animate({ zoom: target }, { duration: 200, easing: 'ease-in-out' });
+          const bounded = Math.max(0.05, Math.min(50, target));
+          cy.animate({ zoom: bounded }, { duration: 200, easing: 'ease-in-out' });
         }
         document.getElementById('zoomIn').addEventListener('click', () => smoothZoom(1.2));
         document.getElementById('zoomOut').addEventListener('click', () => smoothZoom(1/1.2));
@@ -1778,7 +1957,7 @@
           const rect = cyContainer.getBoundingClientRect();
           anchor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
           const factor = Math.exp(-e.deltaY * 0.0012); // slightly faster response
-          targetZoom = Math.max(0.05, Math.min(10, targetZoom * factor));
+          targetZoom = Math.max(0.05, Math.min(50, targetZoom * factor));
           if (!zooming) { zooming = true; requestAnimationFrame(stepZoom); }
         }, { passive: false });
 
