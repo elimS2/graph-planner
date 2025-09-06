@@ -61,6 +61,9 @@
             <button id="btnFit" class="px-3 py-1 bg-slate-600 text-white rounded">Fit</button>
             
             <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
+            <button id="btnExportJSON" class="px-3 py-1 bg-slate-700 text-white rounded" title="Export project as JSON" aria-label="Export project as JSON">Export JSON</button>
+            <button id="btnImportJSON" class="px-3 py-1 bg-slate-700 text-white rounded" title="Import project from JSON" aria-label="Import project from JSON">Import JSON</button>
+            <input id="importInput" type="file" accept="application/json" class="hidden" />
             <label id="langSelectContainer" class="inline-flex items-center gap-2 text-sm text-slate-700">
               <span>Language</span>
               <select id="langSelect" class="border rounded px-2 py-1" aria-label="Language">
@@ -327,6 +330,8 @@
                 <button id="btnCollapsePanel" class="px-2 py-1 text-xs rounded bg-fuchsia-600 text-white" title="Collapse group" aria-label="Collapse group">Collapse</button>
                 <button id="btnExpandPanel" class="px-2 py-1 text-xs rounded bg-fuchsia-500 text-white" title="Expand group" aria-label="Expand group">Expand</button>
                 <button id="btnScreenshotPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Screenshot" aria-label="Screenshot">Screenshot</button>
+                <button id="btnExportJSONPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Export project as JSON" aria-label="Export project as JSON">Export JSON</button>
+                <button id="btnImportJSONPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Import project from JSON" aria-label="Import project from JSON">Import JSON</button>
               </div>
               <div class="flex items-center justify-end pt-1">
                 <button id="btnActionsResetVisibility" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800" title="Reset header visibility to defaults" aria-label="Reset header visibility to defaults">Reset to defaults</button>
@@ -401,21 +406,7 @@
               </div>
             </div>
 
-            <div id="exportImportBlock" class="rounded border p-3 bg-white space-y-2">
-              <button id="exportImportToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="exportImportBody">
-                <span>Export-Import JSON</span>
-                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
-              </button>
-              <div id="exportImportBody">
-                <div class="flex flex-wrap gap-2">
-                  <button id="settingsBtnExportJSON" class="px-3 py-1 bg-slate-700 text-white rounded" aria-label="Export project as JSON" title="Export project as JSON">Export JSON</button>
-                  <label class="px-3 py-1 bg-slate-700 text-white rounded cursor-pointer" aria-label="Import project from JSON" title="Import project from JSON">Import JSON
-                    <input id="settingsImportInput" type="file" accept="application/json" class="hidden" />
-                  </label>
-                </div>
-                <p class="text-xs text-slate-500">Export current graph to a JSON file or import nodes from a JSON file. Import appends nodes; edges import is not supported here.</p>
-              </div>
-            </div>
+            
 
             <div id="visibilityBlock" class="rounded border p-3 bg-white space-y-2">
               <button id="visibilityToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="visibilityBody">
@@ -548,7 +539,7 @@
       // Sidebar reorder helpers (top-level)
       const ORDER_KEYS = { task: 'sidebar.task.order', settings: 'sidebar.settings.order' };
       const DEFAULT_TASK_IDS = ['taskSelectionLinkBlock','taskMetadataBlock','taskStatusPriorityBlock','taskVisibilityBlock','taskCommentsBlock','taskHistoryBlock','taskTimeBlock','taskCostsBlock','taskDangerBlock'];
-      const DEFAULT_SETTINGS_IDS = ['lodBlock','serverInfo','envBlock','exportImportBlock','visibilityBlock','translationBlock'];
+      const DEFAULT_SETTINGS_IDS = ['lodBlock','serverInfo','envBlock','visibilityBlock','translationBlock'];
       function loadOrder(key){ try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
       function saveOrder(key, ids){ try { localStorage.setItem(key, JSON.stringify(ids || [])); } catch {} }
       function applyPanelOrder(panelEl, storageKey, defaultIds){
@@ -2983,15 +2974,32 @@
         }
 
         // Export JSON (nodes+edges)
-        try { document.getElementById('btnExportJSON').addEventListener('click', async () => { exportProjectJSON(projectId); }); } catch {}
+        try {
+          const btn = document.getElementById('btnExportJSON');
+          if (btn && btn.dataset.wired !== '1') {
+            btn.dataset.wired = '1';
+            btn.addEventListener('click', async () => { exportProjectJSON(projectId); try { showToast('Exported project JSON', 'success'); } catch {} });
+          }
+        } catch {}
 
         // Import JSON (append)
-        try { document.getElementById('importInput').addEventListener('change', async (e) => {
-          const file = e.target.files && e.target.files[0];
-          if (!file) return;
-          await importProjectJSONFromFile(file);
-          e.target.value = '';
-        }); } catch {}
+        try {
+          const btnImport = document.getElementById('btnImportJSON');
+          const inp = document.getElementById('importInput');
+          if (btnImport && btnImport.dataset.wired !== '1') {
+            btnImport.dataset.wired = '1';
+            btnImport.addEventListener('click', () => { try { inp && inp.click(); } catch {} });
+          }
+          if (inp && inp.dataset.wired !== '1') {
+            inp.dataset.wired = '1';
+            inp.addEventListener('change', async (e) => {
+              const file = e.target.files && e.target.files[0];
+              if (!file) return;
+              try { await importProjectJSONFromFile(file); try { showToast('Import completed', 'success'); } catch {} } catch { try { showToast('Import failed', 'error'); } catch {} }
+              e.target.value = '';
+            });
+          }
+        } catch {}
 
         // Screenshot PNG
         document.getElementById('btnScreenshot').addEventListener('click', () => {
@@ -3019,13 +3027,7 @@
 
         // (removed) toolbar Show hidden wiring; handled in Settings block
 
-        // Settings: wire Export/Import controls
-        (function wireSettingsExportImport(){
-          const btnExp = document.getElementById('settingsBtnExportJSON');
-          if (btnExp) btnExp.addEventListener('click', () => { exportProjectJSON(projectId); showToast('Exported project JSON', 'success'); });
-          const inp = document.getElementById('settingsImportInput');
-          if (inp) inp.addEventListener('change', async (e)=>{ const file = e.target.files && e.target.files[0]; if (!file) return; await importProjectJSONFromFile(file); showToast('Import completed', 'success'); e.target.value=''; });
-        })();
+        // Settings: Export/Import controls removed; wiring not needed
 
         // Settings: wire Language select and sync with toolbar
         (function wireSettingsLanguage(){
@@ -3132,6 +3134,8 @@
               { headerId: 'btnCollapse', panelId: 'btnCollapsePanel', storageKey: 'actions.header.show.btnCollapse', defaultShow: true },
               { headerId: 'btnExpand', panelId: 'btnExpandPanel', storageKey: 'actions.header.show.btnExpand', defaultShow: true },
               { headerId: 'btnScreenshot', panelId: 'btnScreenshotPanel', storageKey: 'actions.header.show.btnScreenshot', defaultShow: true },
+              { headerId: 'btnExportJSON', panelId: 'btnExportJSONPanel', storageKey: 'actions.header.show.btnExportJSON', defaultShow: true },
+              { headerId: 'btnImportJSON', panelId: 'btnImportJSONPanel', storageKey: 'actions.header.show.btnImportJSON', defaultShow: true },
             ];
             const isShownInHeader = (key, def) => { try { const v = localStorage.getItem(key); if (v==='1') return true; if (v==='0') return false; } catch {} return !!def; };
             const setShownInHeader = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0'); } catch {} };
@@ -3194,6 +3198,8 @@
             const collapseP = document.getElementById('btnCollapsePanel'); if (collapseP && collapseP.dataset.wired !== '1') { collapseP.dataset.wired='1'; collapseP.addEventListener('click', ()=> { const b=document.getElementById('btnCollapse'); if (b) b.click(); }); }
             const expandP = document.getElementById('btnExpandPanel'); if (expandP && expandP.dataset.wired !== '1') { expandP.dataset.wired='1'; expandP.addEventListener('click', ()=> { const b=document.getElementById('btnExpand'); if (b) b.click(); }); }
             const shotP = document.getElementById('btnScreenshotPanel'); if (shotP && shotP.dataset.wired !== '1') { shotP.dataset.wired='1'; shotP.addEventListener('click', ()=> { const b=document.getElementById('btnScreenshot'); if (b) b.click(); }); }
+            const expP = document.getElementById('btnExportJSONPanel'); if (expP && expP.dataset.wired !== '1') { expP.dataset.wired='1'; expP.addEventListener('click', ()=> { const b=document.getElementById('btnExportJSON'); if (b) b.click(); }); }
+            const impP = document.getElementById('btnImportJSONPanel'); if (impP && impP.dataset.wired !== '1') { impP.dataset.wired='1'; impP.addEventListener('click', ()=> { const b=document.getElementById('btnImportJSON'); if (b) b.click(); }); }
           } catch {}
         })();
       })();
