@@ -228,6 +228,7 @@
                 <div class="flex-1 min-h-0">
                   <ul id="commentsList" class="text-sm space-y-1 h-full overflow-auto"></ul>
                 </div>
+                <div id="commentsEmptyState" class="text-xs text-slate-500 italic select-none hidden">No comments yet</div>
                 <form id="commentForm" class="space-y-1.5">
                 <div>
                   <label class="block text-sm">Comment</label>
@@ -1128,6 +1129,20 @@
           await ensureCurrentUser();
           const commentsList = document.getElementById('commentsList');
           commentsList.innerHTML = '';
+          // Hide empty list area to avoid large blank space above the input form
+          try {
+            const listWrapper = commentsList && commentsList.parentElement ? commentsList.parentElement : null;
+            const emptyEl = document.getElementById('commentsEmptyState');
+            const hasComments = Array.isArray(c && c.data) && c.data.length > 0;
+            if (listWrapper) {
+              if (hasComments) listWrapper.classList.remove('hidden');
+              else listWrapper.classList.add('hidden');
+            }
+            if (emptyEl) {
+              if (hasComments) emptyEl.classList.add('hidden');
+              else emptyEl.classList.remove('hidden');
+            }
+          } catch {}
           c.data.forEach(x => {
             const li = document.createElement('li');
             const body = document.createElement('div');
