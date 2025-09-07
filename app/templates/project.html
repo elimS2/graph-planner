@@ -600,7 +600,7 @@
       // Sidebar reorder helpers (top-level)
       const ORDER_KEYS = { task: 'sidebar.task.order', settings: 'sidebar.settings.order' };
       const DEFAULT_TASK_IDS = ['taskSelectionLinkBlock','taskMetadataBlock','taskStatusPriorityBlock','taskVisibilityBlock','taskCommentsBlock','taskHistoryBlock','taskTimeBlock','taskCostsBlock','taskDangerBlock'];
-      const DEFAULT_SETTINGS_IDS = ['lodBlock','serverInfo','envBlock','visibilityBlock','translationBlock'];
+      const DEFAULT_SETTINGS_IDS = ['lodBlock','scheduleBlock','serverInfo','envBlock','visibilityBlock','translationBlock'];
       function loadOrder(key){ try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
       function saveOrder(key, ids){ try { localStorage.setItem(key, JSON.stringify(ids || [])); } catch {} }
       function applyPanelOrder(panelEl, storageKey, defaultIds){
@@ -2711,6 +2711,7 @@
           tabSettings.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
           localStorage.setItem('sidebarTab', 'settings');
           // Initialize collapsible sections (idempotent)
+          wireCollapsibleSection({ toggleId: 'scheduleToggle', bodyId: 'scheduleBody', storageKey: 'sidebar.settings.schedule.collapsed' });
           wireCollapsibleSection({ toggleId: 'serverInfoToggle', bodyId: 'serverInfoBody', storageKey: 'sidebar.settings.serverInfo.collapsed' });
           wireCollapsibleSection({ toggleId: 'envToggle', bodyId: 'envBody', storageKey: 'sidebar.settings.env.collapsed' });
           wireCollapsibleSection({ toggleId: 'exportImportToggle', bodyId: 'exportImportBody', storageKey: 'sidebar.settings.exportImport.collapsed' });
@@ -3131,8 +3132,6 @@
         // Settings: Schedule block wiring
         (function wireSettingsSchedule(){
           const b = document.getElementById('scheduleBody'); if (!b) return;
-          function toggleChevron(btn, open){ try { const c=btn.querySelector('[data-chevron]'); if (c) c.style.transform = open? 'rotate(90deg)':'rotate(0deg)'; } catch {} }
-          (function initCollapse(){ const t=document.getElementById('scheduleToggle'); if (!t) return; let open=true; t.addEventListener('click', ()=>{ open=!open; document.getElementById('scheduleBody').classList.toggle('hidden', !open); toggleChevron(t, open); }); toggleChevron(t, true); })();
           const mode = document.getElementById('schedMode'); const hour = document.getElementById('schedHour'); const minute = document.getElementById('schedMinute'); const wd = document.getElementById('schedWeekday'); const every = document.getElementById('schedEveryHours'); const cron = document.getElementById('schedCron'); const out = document.getElementById('schedStatus');
           function applyVisibility(){ const m=(mode.value||'disabled');
             hour.parentElement.classList.toggle('hidden', !(m==='daily'||m==='weekly'));
