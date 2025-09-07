@@ -14,6 +14,10 @@ import uuid
 from ...utils.env_reader import read_dotenv_values, is_sensitive_key, mask_value
 from ...services.backups import perform_sqlite_backup, BackupError
 from ...utils.process import spawn_detached_silent
+from ... import extensions as ext
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from ...services.scheduler_jobs import backup_db_job
 
 
 bp = Blueprint("settings_api", __name__, url_prefix="/api/v1")
@@ -255,3 +259,118 @@ def backup_db():
                 "detail": str(e) if current_app.config.get("DEBUG") else ""
             }]
         }), 500
+
+
+@bp.get("/settings/scheduler")
+def get_scheduler_status():
+    jobs = []
+    try:
+        if ext.scheduler:
+            for j in ext.scheduler.get_jobs():
+                jobs.append({
+                    "id": j.id,
+                    "next_run_time": j.next_run_time.isoformat() if j.next_run_time else None,
+                    "trigger": str(j.trigger),
+                })
+        return jsonify({"data": {"jobs": jobs}})
+    except Exception as e:
+        return jsonify({"errors": [{"status": 500, "title": "Scheduler error", "detail": str(e)}]}), 500
+
+
+def _ensure_scheduler():
+    if not ext.scheduler:
+        raise RuntimeError("Scheduler is not initialized")
+
+
+@bp.post("/settings/scheduler/backup")
+def set_backup_schedule():
+    """Create or update the backup schedule.
+
+    Body: { mode: 'disabled'|'daily'|'weekly'|'cron'|'interval', hour?, minute?, weekday?, cron?, every_hours? }
+    """
+    try:
+        _ensure_scheduler()
+        js = request.get_json(silent=True) or {}
+        mode = (js.get('mode') or '').lower()
+        job_id = 'backup_db'
+
+        # Remove existing
+        try:
+            ext.scheduler.remove_job(job_id)
+        except Exception:
+            pass
+
+        if mode in ('', 'disabled'):
+            return jsonify({"data": {"disabled": True}})
+
+        trigger = None
+        if mode == 'daily':
+            hour = int(js.get('hour') or 0)
+            minute = int(js.get('minute') or 0)
+            trigger = CronTrigger(hour=hour, minute=minute)
+        elif mode == 'weekly':
+            hour = int(js.get('hour') or 0)
+            minute = int(js.get('minute') or 0)
+            weekday = str(js.get('weekday') or 'mon')
+            trigger = CronTrigger(day_of_week=weekday, hour=hour, minute=minute)
+        elif mode == 'cron':
+            expr = str(js.get('cron') or '').strip()
+            if not expr:
+                return jsonify({"errors":[{"status":400,"title":"Invalid cron","detail":"Cron expression is required"}]}), 400
+            try:
+                trigger = CronTrigger.from_crontab(expr)
+            except Exception as e:
+                return jsonify({"errors":[{"status":400,"title":"Invalid cron","detail":str(e)}]}), 400
+        elif mode == 'interval':
+            every = int(js.get('every_hours') or 0)
+            if every < 1:
+                return jsonify({"errors":[{"status":400,"title":"Invalid interval","detail":"every_hours must be >= 1"}]}), 400
+            trigger = IntervalTrigger(hours=every)
+        else:
+            return jsonify({"errors":[{"status":400,"title":"Invalid mode","detail":"Unsupported scheduling mode"}]}), 400
+
+        # Use dotted callable reference to make the job serializable
+        ext.scheduler.add_job(backup_db_job, trigger=trigger, id=job_id, replace_existing=True, coalesce=True, max_instances=1)
+        j = ext.scheduler.get_job(job_id)
+        return jsonify({"data": {"scheduled": True, "job": {"id": j.id, "next_run_time": j.next_run_time.isoformat() if j and j.next_run_time else None}}})
+    except Exception as e:
+        current_app.logger.exception('[scheduler] set schedule failed')
+        return jsonify({"errors":[{"status":500,"title":"Set schedule failed","detail":str(e)}]}), 500
+
+
+@bp.delete("/settings/scheduler/backup")
+def delete_backup_schedule():
+    try:
+        _ensure_scheduler()
+        job_id = 'backup_db'
+        try:
+            ext.scheduler.remove_job(job_id)
+        except Exception:
+            pass
+        return jsonify({"data": {"deleted": True}})
+    except Exception as e:
+        return jsonify({"errors":[{"status":500,"title":"Delete failed","detail":str(e)}]}), 500
+
+
+@bp.post("/settings/scheduler/backup/run")
+def run_backup_now():
+    try:
+        here = Path(__file__).resolve()
+        root = here.parents[3]
+        envv = read_dotenv_values(root)
+        backups_dir_raw = (envv.get("BACKUPS_DIR") or "").strip()
+        if not backups_dir_raw:
+            return jsonify({"errors":[{"status":400,"title":"Missing BACKUPS_DIR","detail":"Provide BACKUPS_DIR in .env at the project root."}]}), 400
+        backups_dir = Path(backups_dir_raw)
+        if not backups_dir.is_absolute():
+            backups_dir = (root / backups_dir).resolve()
+        db_uri = current_app.config.get("SQLALCHEMY_DATABASE_URI", "") or ""
+        if not db_uri.lower().startswith("sqlite:"):
+            return jsonify({"errors":[{"status":400,"title":"Unsupported database engine","detail":"Only SQLite is supported for backups in this version."}]}), 400
+        result = perform_sqlite_backup(backups_dir, db_uri)
+        return jsonify({"data": result})
+    except BackupError as e:
+        return jsonify({"errors":[{"status":400,"title":"Backup error","detail":str(e)}]}), 400
+    except Exception as e:
+        current_app.logger.exception('[scheduler] run-now failed')
+        return jsonify({"errors":[{"status":500,"title":"Unexpected error","detail":str(e) if current_app.config.get('DEBUG') else ''}]}), 500

@@ -21,6 +21,7 @@ class BaseConfig:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JSON_SORT_KEYS = False
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    SCHEDULER_ENABLED = (os.getenv("SCHEDULER_ENABLED", "1").strip() != "0")
 
 
 class DevelopmentConfig(BaseConfig):

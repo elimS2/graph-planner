@@ -360,6 +360,41 @@
                 <p class="text-xs text-slate-500">When enabled, low-importance nodes may fade/hide at low zoom to keep the view responsive. Disable to always show all nodes.</p>
               </div>
             </div>
+
+            <div id="scheduleBlock" class="rounded border p-3 bg-white space-y-2">
+              <button id="scheduleToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="scheduleBody">
+                <span>Schedule</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="scheduleBody" class="space-y-2">
+                <label class="block text-sm font-semibold text-slate-600">Backup cadence</label>
+                <select id="schedMode" class="border rounded px-2 py-1 text-sm">
+                  <option value="disabled">Disabled</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="interval">Every N hours</option>
+                  <option value="cron">Cron expression</option>
+                </select>
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                  <label class="flex items-center gap-2"><span>Hour</span><input id="schedHour" type="number" min="0" max="23" class="border rounded px-2 py-1 w-20"></label>
+                  <label class="flex items-center gap-2"><span>Minute</span><input id="schedMinute" type="number" min="0" max="59" class="border rounded px-2 py-1 w-20"></label>
+                  <label class="flex items-center gap-2"><span>Weekday</span>
+                    <select id="schedWeekday" class="border rounded px-2 py-1">
+                      <option value="mon">Mon</option><option value="tue">Tue</option><option value="wed">Wed</option><option value="thu">Thu</option><option value="fri">Fri</option><option value="sat">Sat</option><option value="sun">Sun</option>
+                    </select>
+                  </label>
+                  <label class="flex items-center gap-2"><span>Every</span><input id="schedEveryHours" type="number" min="1" max="168" class="border rounded px-2 py-1 w-24"><span>hours</span></label>
+                </div>
+                <label class="block text-sm font-semibold text-slate-600">Cron</label>
+                <input id="schedCron" class="w-full text-sm border rounded px-2 py-1" placeholder="e.g. 0 2 * * *" />
+                <div class="flex gap-2">
+                  <button id="btnSchedSave" class="px-2 py-1 text-xs rounded bg-slate-700 text-white">Save</button>
+                  <button id="btnSchedDelete" class="px-2 py-1 text-xs rounded bg-rose-600 text-white">Disable</button>
+                  <button id="btnSchedRunNow" class="px-2 py-1 text-xs rounded bg-indigo-600 text-white">Run now</button>
+                </div>
+                <div id="schedStatus" class="text-xs text-slate-600"></div>
+              </div>
+            </div>
             <div id="serverInfo" class="rounded border p-3 text-sm bg-white">
               <button id="serverInfoToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="serverInfoBody">
                 <span>Server Info</span>
@@ -3070,6 +3105,43 @@
             const lang = e.target.value || '';
             await handleLanguageChange(lang);
             try { const hSel = document.getElementById('langSelect'); if (hSel) hSel.value = lang; } catch {}
+          });
+        })();
+
+        // Settings: Schedule block wiring
+        (function wireSettingsSchedule(){
+          const b = document.getElementById('scheduleBody'); if (!b) return;
+          function toggleChevron(btn, open){ try { const c=btn.querySelector('[data-chevron]'); if (c) c.style.transform = open? 'rotate(90deg)':'rotate(0deg)'; } catch {} }
+          (function initCollapse(){ const t=document.getElementById('scheduleToggle'); if (!t) return; let open=true; t.addEventListener('click', ()=>{ open=!open; document.getElementById('scheduleBody').classList.toggle('hidden', !open); toggleChevron(t, open); }); toggleChevron(t, true); })();
+          const mode = document.getElementById('schedMode'); const hour = document.getElementById('schedHour'); const minute = document.getElementById('schedMinute'); const wd = document.getElementById('schedWeekday'); const every = document.getElementById('schedEveryHours'); const cron = document.getElementById('schedCron'); const out = document.getElementById('schedStatus');
+          function applyVisibility(){ const m=(mode.value||'disabled');
+            hour.parentElement.classList.toggle('hidden', !(m==='daily'||m==='weekly'));
+            minute.parentElement.classList.toggle('hidden', !(m==='daily'||m==='weekly'));
+            wd.parentElement.classList.toggle('hidden', !(m==='weekly'));
+            every.parentElement.parentElement.classList.toggle('hidden', !(m==='interval'));
+            cron.classList.toggle('hidden', !(m==='cron'));
+          }
+          mode.addEventListener('change', applyVisibility); applyVisibility();
+          // simple client-side hints
+          cron.setAttribute('title','Format: m h dom mon dow (e.g. 0 2 * * *)');
+          every.setAttribute('title','Run every N hours (>=1)');
+          async function refreshStatus(){ try { const s = await fetch('/api/v1/settings/scheduler').then(r=>r.json()); const jobs=(s&&s.data&&s.data.jobs)||[]; const b=jobs.find(j=>j.id==='backup_db'); out.textContent = b? (`Next run: ${b.next_run_time||'—'} | ${b.trigger}`) : 'Disabled'; } catch { out.textContent='Failed to load scheduler status'; } }
+          refreshStatus();
+          document.getElementById('btnSchedSave').addEventListener('click', async ()=>{
+            const body = { mode: mode.value };
+            if (mode.value==='daily'){ body.hour = Number(hour.value||0); body.minute = Number(minute.value||0); }
+            else if (mode.value==='weekly'){ body.hour = Number(hour.value||0); body.minute = Number(minute.value||0); body.weekday = String(wd.value||'mon'); }
+            else if (mode.value==='interval'){ body.every_hours = Number(every.value||0); }
+            else if (mode.value==='cron'){ body.cron = String(cron.value||''); }
+            const r = await fetch('/api/v1/settings/scheduler/backup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+            if (!r.ok){ try { const e=await r.json(); showToast((e&&e.errors&&e.errors[0]&&(e.errors[0].detail||e.errors[0].title))||'Failed to save','error'); } catch { showToast('Failed to save','error'); } }
+            else { showToast('Schedule saved','success'); refreshStatus(); }
+          });
+          document.getElementById('btnSchedDelete').addEventListener('click', async ()=>{
+            const r = await fetch('/api/v1/settings/scheduler/backup', { method:'DELETE' }); if (!r.ok){ showToast('Failed to disable','error'); } else { showToast('Disabled','success'); refreshStatus(); }
+          });
+          document.getElementById('btnSchedRunNow').addEventListener('click', async ()=>{
+            const r = await fetch('/api/v1/settings/scheduler/backup/run', { method:'POST' }); if (!r.ok){ try { const e=await r.json(); showToast((e&&e.errors&&e.errors[0]&&(e.errors[0].detail||e.errors[0].title))||'Run failed','error'); } catch { showToast('Run failed','error'); } } else { showToast('Backup started','success'); refreshStatus(); }
           });
         })();
 

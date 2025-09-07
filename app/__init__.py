@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from flask import Flask
 
 from .config import DevelopmentConfig, ProductionConfig, TestingConfig
-from .extensions import db, migrate, ma, login_manager
+from .extensions import db, migrate, ma, login_manager, init_scheduler
 from flask_login import AnonymousUserMixin
 from .logging_config import configure_logging
 from .error_handlers import register_error_handlers
@@ -62,6 +62,15 @@ def create_app(config_name: str | None = None) -> Flask:
     # Server boot timestamp (UTC) for health/uptime reporting
     try:
         app.config["SERVER_STARTED_AT"] = datetime.utcnow().isoformat() + "Z"
+    except Exception:
+        pass
+
+    # Initialize scheduler (best-effort; do not fail app if it errors)
+    try:
+        if app.config.get("SCHEDULER_ENABLED", True):
+            init_scheduler(app)
+        else:
+            app.logger.info('[scheduler] disabled by config')
     except Exception:
         pass
 
