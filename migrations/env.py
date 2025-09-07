@@ -13,16 +13,26 @@ import sys
 sys.path.append(os.getcwd())
 
 from app.extensions import db
+from flask import current_app
 from app.models import *  # noqa: F401,F403, import models metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+# Ensure SQLAlchemy URL comes from Flask app config (not alembic.ini)
+try:
+    config.set_main_option("sqlalchemy.url", current_app.config.get("SQLALCHEMY_DATABASE_URI", ""))
+except Exception:
+    pass
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    try:
+        fileConfig(config.config_file_name)
+    except Exception:
+        # If logging config file is missing, proceed without configuring logging
+        pass
 
 target_metadata = db.metadata
 

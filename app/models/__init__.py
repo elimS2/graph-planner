@@ -165,6 +165,13 @@ class Comment(db.Model, TimestampMixin):
     node = relationship("Node", back_populates="comments")
     user = relationship("User", back_populates="comments")
     translations = relationship("CommentTranslation", back_populates="comment", cascade="all, delete-orphan")
+    # Attachments M2M
+    attachments = relationship(
+        "Attachment",
+        secondary=lambda: comment_attachment,
+        back_populates="comments",
+        cascade="all",
+    )
 
 
 class Tag(db.Model):
@@ -239,4 +246,37 @@ class BackgroundJob(db.Model, TimestampMixin):
     error: Mapped[Optional[str]] = mapped_column(db.Text, nullable=True)
     meta_json: Mapped[Optional[str]] = mapped_column(db.Text, nullable=True)
 
+
+# Attachments
+
+# Association table for many-to-many Comment <-> Attachment
+comment_attachment = Table(
+    "comment_attachment",
+    db.metadata,
+    Column("comment_id", db.String, ForeignKey("comment.id", ondelete="CASCADE"), primary_key=True),
+    Column("attachment_id", db.String, ForeignKey("attachment.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class Attachment(db.Model, TimestampMixin):
+    __tablename__ = "attachment"
+
+    id: Mapped[str] = mapped_column(db.String, primary_key=True, default=generate_uuid)
+    uploader_user_id: Mapped[str] = mapped_column(db.String, ForeignKey("user.id"), nullable=False)
+    mime_type: Mapped[str] = mapped_column(db.String, nullable=False)
+    kind: Mapped[str] = mapped_column(db.String, nullable=False, default="file")  # image|file
+    original_name: Mapped[str] = mapped_column(db.String, nullable=True)
+    storage_path: Mapped[str] = mapped_column(db.String, nullable=False, unique=True)
+    size_bytes: Mapped[int] = mapped_column(db.Integer, nullable=True)
+    width: Mapped[int | None] = mapped_column(db.Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(db.Integer, nullable=True)
+    checksum_sha256: Mapped[str | None] = mapped_column(db.String, nullable=True, unique=True)
+    meta_json: Mapped[str | None] = mapped_column(db.Text, nullable=True)
+
+    uploader = relationship("User")
+    comments = relationship("Comment", secondary=lambda: comment_attachment, back_populates="attachments")
+
+    __table_args__ = (
+        UniqueConstraint("storage_path", name="uq_attachment_storage_path"),
+    )
 

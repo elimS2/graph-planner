@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, send_file
 import os
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 import glob
@@ -7,8 +7,8 @@ import logging
 
 from ...extensions import db
 from flask_login import login_required
-from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout, StatusChange, User, NodeTranslation
-from ...schemas import ProjectSchema, NodeSchema, EdgeSchema, CommentSchema, TimeEntrySchema, CostEntrySchema, StatusChangeSchema
+from ...models import Project, Node, Edge, Comment, TimeEntry, CostEntry, NodeLayout, StatusChange, User, NodeTranslation, Attachment
+from ...schemas import ProjectSchema, NodeSchema, EdgeSchema, CommentSchema, TimeEntrySchema, CostEntrySchema, StatusChangeSchema, AttachmentSchema, CommentWithAttachmentsSchema
 from flask_login import current_user
 from ...repositories.translations import (
     get_missing_node_titles,
@@ -27,6 +27,7 @@ from ...utils.sanitize import sanitize_comment_html
 from marshmallow import ValidationError
 from ...models import BackgroundJob
 from urllib.parse import urlparse
+from ...services.uploads import save_filestorage, _resolve_files_root
 
 
 bp = Blueprint("graph", __name__, url_prefix="/api/v1")
@@ -168,8 +169,16 @@ def update_comment(id: str):
         return jsonify({"errors": [{"status": 400, "title": "Empty content"}]}), 400
     for k, v in data.items():
         setattr(item, k, v)
+    # Optional attachments update
+    try:
+        attach_ids = payload.get("attachment_ids")
+        if isinstance(attach_ids, list):
+            refs = [db.session.get(Attachment, str(aid)) for aid in attach_ids]
+            item.attachments = [a for a in refs if a is not None]
+    except Exception:
+        pass
     db.session.commit()
-    return jsonify({"data": CommentSchema().dump(item)})
+    return jsonify({"data": CommentWithAttachmentsSchema().dump(item)})
 
 
 @bp.delete("/comments/<id>")
@@ -437,14 +446,34 @@ def add_comment(node_id: str):
         payload["node_id"] = node_id
         # Force a valid user id (ignore client-provided value)
         payload["user_id"] = _fallback_user_id()
+        # Extract attachments to avoid schema validation error on unknown field
+        attach_ids = None
+        try:
+            attach_ids = payload.pop("attachment_ids", None)
+        except Exception:
+            attach_ids = None
+        # Safety: ensure body not empty if only attachments/html are present
+        try:
+            btxt = str(payload.get("body") or "").strip()
+            if not btxt:
+                payload["body"] = "(attachment)"
+        except Exception:
+            payload["body"] = "(attachment)"
         data = CommentSchema().load(payload)
         # Sanitize optional HTML
         if "body_html" in data:
             data["body_html"] = sanitize_comment_html(data.get("body_html"))
         item = Comment(**data)
         db.session.add(item)
+        # Link attachments if provided
+        try:
+            if isinstance(attach_ids, list):
+                refs = [db.session.get(Attachment, str(aid)) for aid in attach_ids]
+                item.attachments = [a for a in refs if a is not None]
+        except Exception:
+            pass
         db.session.commit()
-        return jsonify({"data": CommentSchema().dump(item)}), 201
+        return jsonify({"data": CommentWithAttachmentsSchema().dump(item)}), 201
     except ValidationError as ve:
         return jsonify({"errors": [{"status": 400, "title": "Invalid comment payload", "detail": ve.messages}]}), 400
     except IntegrityError as ie:
@@ -460,7 +489,7 @@ def add_comment(node_id: str):
 def list_comments(node_id: str):
     lang = (request.args.get("lang") or "").lower().strip()
     items = db.session.query(Comment).filter_by(node_id=node_id).order_by(Comment.created_at.desc()).all()
-    payload = CommentSchema(many=True).dump(items)
+    payload = CommentWithAttachmentsSchema(many=True).dump(items)
     if lang:
         from ...models import CommentTranslation
         try:
@@ -472,6 +501,76 @@ def list_comments(node_id: str):
         except SQLAlchemyError:
             pass
     return jsonify({"data": payload})
+
+
+# Attachments API
+@bp.post("/attachments")
+@login_required
+def upload_attachment():
+    try:
+        # Simple in-memory rate limiting per IP (best-effort)
+        try:
+            from flask import g
+            import time
+            now = time.time()
+            wnd = 3.0
+            key = f"upload_last_{request.remote_addr or 'x'}"
+            last = getattr(g, key, 0)
+            if last and (now - last) < 0.5:
+                return jsonify({"errors": [{"status": 429, "title": "Too Many Requests"}]}), 429
+            setattr(g, key, now)
+        except Exception:
+            pass
+        if "file" not in request.files:
+            return jsonify({"errors": [{"status": 400, "title": "file field is required"}]}), 400
+        file = request.files["file"]
+        uploader_id = _fallback_user_id()
+        saved = save_filestorage(file, uploader_id)
+        att = saved.attachment
+        # Public URL for client
+        safe_name = (att.original_name or "file").replace("/", "-")
+        url = f"/api/v1/files/{att.id}/{safe_name}"
+        data = AttachmentSchema().dump(att)
+        data["url"] = url
+        return jsonify({"data": data}), 201
+    except Exception as e:
+        return jsonify({"errors": [{"status": 400, "title": "Upload failed", "detail": str(e)}]}), 400
+
+
+@bp.get("/attachments/<id>")
+def get_attachment(id: str):
+    att = db.session.get(Attachment, id)
+    if not att:
+        return jsonify({"errors": [{"status": 404, "title": "Not Found"}]}), 404
+    safe_name = (att.original_name or "file").replace("/", "-")
+    url = f"/api/v1/files/{att.id}/{safe_name}"
+    data = AttachmentSchema().dump(att)
+    data["url"] = url
+    return jsonify({"data": data})
+
+
+@bp.get("/files/<id>/<name>")
+def serve_attachment(id: str, name: str):
+    att = db.session.get(Attachment, id)
+    if not att:
+        return jsonify({"errors": [{"status": 404, "title": "Not Found"}]}), 404
+    root = _resolve_files_root()
+    abs_path = (root / att.storage_path).resolve()
+    try:
+        # Simple caching via ETag on checksum
+        etag = (att.checksum_sha256 or att.id)
+        inm = request.headers.get('If-None-Match')
+        if inm and etag and inm.strip('"') == etag:
+            return ("", 304, {"ETag": f'"{etag}"', "Cache-Control": "public, max-age=86400"})
+        rv = send_file(abs_path, mimetype=att.mime_type, as_attachment=False, download_name=(att.original_name or name))
+        try:
+            rv.headers["ETag"] = f'"{etag}"'
+            rv.headers["Cache-Control"] = "public, max-age=86400"
+        except Exception:
+            pass
+        return rv
+    except Exception as e:
+        return jsonify({"errors": [{"status": 404, "title": "File not found", "detail": str(e)}]}), 404
 
 
 # Time entries

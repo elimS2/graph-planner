@@ -259,6 +259,10 @@
                         <button class="ql-link" title="Link"></button>
                         <button class="ql-clean" title="Clear Formatting"></button>
                       </span>
+                      <span class="ql-formats">
+                        <button type="button" id="btnAttachFile" title="Attach">Attach</button>
+                        <input id="filePickerComment" type="file" class="hidden" multiple />
+                      </span>
                     </div>
                     <div id="commentEditorArea" class="h-24"></div>
                   </div>
@@ -1025,6 +1029,8 @@
 
         // WYSIWYG comment editor (Quill)
         let quill = null;
+        // Track attachments for a new comment
+        let newCommentAttachmentIds = [];
         // Inline editor for existing comments
         let quillEdit = null;
         let currentUserId = null;
@@ -1038,6 +1044,60 @@
               modules: { toolbar: '#commentToolbar' },
               theme: 'snow',
               placeholder: 'Write a comment',
+            });
+            // Attach button
+            try {
+              const btn = document.getElementById('btnAttachFile');
+              const picker = document.getElementById('filePickerComment');
+              if (btn && picker){
+                btn.addEventListener('click', ()=> picker.click());
+                picker.addEventListener('change', async ()=>{
+                  const files = Array.from(picker.files||[]);
+                  if (files.length){ await handleFiles(files); }
+                  picker.value = '';
+                });
+              }
+            } catch {}
+            // Paste and drag&drop upload handlers
+            const editorRoot = quill.root;
+            async function uploadFile(file){
+              const fd = new FormData();
+              fd.append('file', file);
+              const res = await fetch('/api/v1/attachments', { method: 'POST', body: fd });
+              const js = await res.json();
+              if (!res.ok) throw new Error((js && js.errors && js.errors[0] && js.errors[0].detail) || 'Upload failed');
+              return js.data;
+            }
+            async function handleFiles(files){
+              for (const f of files){
+                try{
+                  const a = await uploadFile(f);
+                  if (a && a.id) newCommentAttachmentIds.push(String(a.id));
+                  const range = quill.getSelection(true) || { index: quill.getLength() };
+                  if ((a.kind||'').toLowerCase() === 'image'){
+                    quill.insertEmbed(range.index, 'image', a.url, 'user');
+                    quill.setSelection(range.index + 1, 0);
+                  } else {
+                    const html = `<a href="${a.url}" target="_blank" rel="noopener">${a.original_name || 'file'}</a>`;
+                    quill.clipboard.dangerouslyPasteHTML(range.index, html);
+                  }
+                } catch (e) {
+                  alert(String(e && e.message ? e.message : e));
+                }
+              }
+            }
+            editorRoot.addEventListener('paste', async (e)=>{
+              try{
+                const items = (e.clipboardData && e.clipboardData.items) ? Array.from(e.clipboardData.items) : [];
+                const files = items.map(it=> (it.kind==='file') ? it.getAsFile() : null).filter(Boolean);
+                if (files && files.length){ e.preventDefault(); await handleFiles(files); }
+              } catch {}
+            });
+            editorRoot.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+            editorRoot.addEventListener('drop', async (e)=>{
+              e.preventDefault();
+              const files = (e.dataTransfer && e.dataTransfer.files) ? Array.from(e.dataTransfer.files) : [];
+              if (files && files.length){ await handleFiles(files); }
             });
           } catch {}
         }
@@ -1132,6 +1192,34 @@
                     try { quillEdit.setText(String(x.body || '')); } catch {}
                   }
 
+                  // Track attachments during edit
+                  let editAttachmentIds = Array.isArray(x.attachments) ? x.attachments.map(a=>String(a.id)) : [];
+                  const editToolbar = document.createElement('div');
+                  editToolbar.className = 'mt-1 flex items-center gap-2';
+                  const btnAttachE = document.createElement('button'); btnAttachE.type='button'; btnAttachE.className='px-2 py-1 text-xs rounded bg-slate-200 text-slate-800'; btnAttachE.textContent='Attach';
+                  const pickerE = document.createElement('input'); pickerE.type='file'; pickerE.multiple=true; pickerE.className='hidden';
+                  const hintE = document.createElement('span'); hintE.className='text-xs text-slate-500'; hintE.textContent='You can paste or drag files here.';
+                  editToolbar.appendChild(btnAttachE); editToolbar.appendChild(pickerE); editToolbar.appendChild(hintE);
+                  editWrap.appendChild(editToolbar);
+
+                  async function uploadE(files){
+                    for (const f of files){
+                      try{
+                        const fd = new FormData(); fd.append('file', f);
+                        const r = await fetch('/api/v1/attachments', { method:'POST', body: fd });
+                        const js = await r.json(); if (!r.ok) throw new Error((js && js.errors && js.errors[0] && js.errors[0].title)||'Upload failed');
+                        const a = js.data; editAttachmentIds.push(String(a.id));
+                        const range = quillEdit.getSelection(true) || { index: quillEdit.getLength() };
+                        if ((a.kind||'').toLowerCase()==='image') quillEdit.insertEmbed(range.index, 'image', a.url, 'user');
+                        else quillEdit.clipboard.dangerouslyPasteHTML(range.index, `<a href="${a.url}" target="_blank" rel="noopener">${a.original_name||'file'}</a>`);
+                      } catch(e){ alert(String(e && e.message ? e.message : e)); }
+                    }
+                  }
+                  btnAttachE.addEventListener('click',()=>pickerE.click());
+                  pickerE.addEventListener('change', async ()=>{ const fs = Array.from(pickerE.files||[]); if (fs.length) await uploadE(fs); pickerE.value=''; });
+                  quillEdit.root.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+                  quillEdit.root.addEventListener('drop', async (e)=>{ e.preventDefault(); const fs = (e.dataTransfer && e.dataTransfer.files)?Array.from(e.dataTransfer.files):[]; if(fs.length) await uploadE(fs); });
+
                   btnCancel.addEventListener('click', async () => {
                     destroyQuillEdit();
                     await refreshLists(selectedNodeId);
@@ -1140,8 +1228,11 @@
                     try {
                       let html = quillEdit ? (quillEdit.root.innerHTML || '') : '';
                       let text = quillEdit ? (quillEdit.getText() || '').trim() : '';
-                      if (!text) { alert('Comment cannot be empty'); return; }
-                      await patchJSON(`/api/v1/comments/${x.id}`, { body: text, body_html: html });
+                      // Allow empty text if we have html content or attachments
+                      const htmlHas = /<(img|a|code|pre|blockquote|ul|ol|li|h1|h2|h3|p)[^>]*>/i.test((html||''));
+                      if (!text && !htmlHas && (!editAttachmentIds || !editAttachmentIds.length)) { alert('Comment cannot be empty'); return; }
+                      if (!text) text='(attachment)';
+                      await patchJSON(`/api/v1/comments/${x.id}`, { body: text, body_html: html, attachment_ids: Array.from(new Set(editAttachmentIds)) });
                       destroyQuillEdit();
                       await refreshLists(selectedNodeId);
                     } catch (e) {
@@ -1350,13 +1441,28 @@
               html = quill.root.innerHTML || '';
               // derive text content (Quill inserts <p><br></p> for empty)
               text = (quill.getText() || '').trim();
-              if (!text) html = null; // treat empty as no-op body_html
             }
           } catch {}
-          if (!text) return; // do not submit empty
-          await postJSON(`/api/v1/nodes/${selectedNodeId}/comments`, { body: text, body_html: html });
+          // Allow image/link-only comments or attachments-only submissions
+          const htmlHasContent = (()=>{
+            try {
+              const cleaned = (html || '').replace(/\s+/g,' ');
+              if (!cleaned) return false;
+              if (/^\s*<p><br\/?><\/p>\s*$/i.test(cleaned)) return false;
+              return /<(img|a|code|pre|blockquote|ul|ol|li|h1|h2|h3|p)[^>]*>/i.test(cleaned);
+            } catch { return false; }
+          })();
+          if (!text && !htmlHasContent && (!newCommentAttachmentIds || !newCommentAttachmentIds.length)) return; // still empty
+          // Ensure non-empty body for schema if only attachments/html are present
+          if (!text) text = '(attachment)';
+          const payload = { body: text, body_html: html };
+          if (newCommentAttachmentIds && newCommentAttachmentIds.length) {
+            payload.attachment_ids = Array.from(new Set(newCommentAttachmentIds));
+          }
+          await postJSON(`/api/v1/nodes/${selectedNodeId}/comments`, payload);
           e.target.reset();
           try { if (quill) { quill.setContents([]); } } catch {}
+          newCommentAttachmentIds = [];
           await refreshLists(selectedNodeId);
         });
 
@@ -2058,9 +2164,15 @@
                 const curW = parseInt(sidebar.style.width || sidebar.offsetWidth || '0', 10) || 0;
                 localStorage.setItem('sidebarHidden','0');
                 if (curW < thresholdPx){
-                  sidebar.style.width = DEFAULT_W + 'px';
+                  // Prefer restoring last meaningful user width over default
+                  let w = DEFAULT_W;
+                  try {
+                    const stored = parseInt(localStorage.getItem('sidebar.width.current') || localStorage.getItem('sidebarWidth') || String(DEFAULT_W), 10);
+                    if (!isNaN(stored) && stored > 0) w = stored;
+                  } catch {}
+                  sidebar.style.width = w + 'px';
                   try { sidebar.classList.remove('collapsed'); } catch {}
-                  try { localStorage.setItem('sidebarWidth', String(DEFAULT_W)); } catch {}
+                  try { localStorage.setItem('sidebarWidth', String(w)); localStorage.setItem('sidebar.width.current', String(w)); } catch {}
                 }
                 applySidebarVisibility();
               }
@@ -2460,9 +2572,14 @@
             // Reveal; if width is under threshold (incl. 0), snap to default
             localStorage.setItem('sidebarHidden', '0');
             if (curW < thresholdPx){
-              sidebar.style.width = DEFAULT_W + 'px';
+              let w = DEFAULT_W;
+              try {
+                const stored = parseInt(localStorage.getItem('sidebar.width.current') || localStorage.getItem('sidebarWidth') || String(DEFAULT_W), 10);
+                if (!isNaN(stored) && stored > 0) w = stored;
+              } catch {}
+              sidebar.style.width = w + 'px';
               try { sidebar.classList.remove('collapsed'); } catch {}
-              try { localStorage.setItem('sidebarWidth', String(DEFAULT_W)); } catch {}
+              try { localStorage.setItem('sidebarWidth', String(w)); localStorage.setItem('sidebar.width.current', String(w)); } catch {}
             }
             applySidebarVisibility();
             return;
@@ -2499,6 +2616,54 @@
           const sidebar = document.getElementById('sidebar');
           const MIN_SIDEBAR = 0;
           const MIN_LEFT = 0; // allow full-width sidebar
+          // Storage helpers and one-time migration (SoC)
+          function migrateSidebarWidthKeys(){
+            try {
+              if (!localStorage.getItem('sidebar.width.current')){
+                const legacy = localStorage.getItem('sidebarWidth');
+                if (legacy != null) localStorage.setItem('sidebar.width.current', legacy);
+              }
+            } catch {}
+          }
+          function getCurrentWidth(){
+            try { return parseInt(localStorage.getItem('sidebar.width.current') || localStorage.getItem('sidebarWidth') || '384', 10); } catch { return 384; }
+          }
+          function setCurrentWidth(px){
+            try {
+              localStorage.setItem('sidebar.width.current', String(px));
+              // keep legacy key in sync for backward compatibility
+              localStorage.setItem('sidebarWidth', String(px));
+            } catch {}
+          }
+          function getPrevBeforeAutoHide(){
+            try {
+              const v = localStorage.getItem('sidebar.width.prevBeforeAutoHide') || localStorage.getItem('sidebar.prevWidthAutoHidden') || '';
+              const n = parseInt(v, 10);
+              return isNaN(n) ? null : n;
+            } catch { return null; }
+          }
+          function setPrevBeforeAutoHide(px){
+            try {
+              localStorage.setItem('sidebar.width.prevBeforeAutoHide', String(px));
+              // sync legacy key as well
+              localStorage.setItem('sidebar.prevWidthAutoHidden', String(px));
+            } catch {}
+          }
+          function getPrevBeforeFs(){
+            try {
+              const v = localStorage.getItem('sidebar.width.prevBeforeFs') || localStorage.getItem('sidebar.prevWidthB4CommentsFs') || '';
+              const n = parseInt(v, 10);
+              return isNaN(n) ? null : n;
+            } catch { return null; }
+          }
+          function setPrevBeforeFs(px){
+            try {
+              localStorage.setItem('sidebar.width.prevBeforeFs', String(px));
+              // sync legacy key as well
+              localStorage.setItem('sidebar.prevWidthB4CommentsFs', String(px));
+            } catch {}
+          }
+          migrateSidebarWidthKeys();
           // Auto-hide state
           let autoHideTimer = null;
           let suspendAutoHide = false;
@@ -2518,7 +2683,7 @@
               // Do not auto-hide if explicitly pinned at 0 (optional)
               const curW = parseInt(sidebar.style.width || sidebar.offsetWidth || '0', 10) || 0;
               if (getRespectZero() && curW === 0) return;
-              try { localStorage.setItem('sidebar.prevWidthAutoHidden', String(curW)); } catch {}
+              setPrevBeforeAutoHide(curW);
               localStorage.setItem('sidebarHidden','1');
               applySidebarVisibility();
             }, getAutoHideDelay());
@@ -2526,9 +2691,11 @@
           function cancelAutoHide(){ clearAutoTimer(); }
           function restoreFromAutoHide(){
             localStorage.setItem('sidebarHidden','0');
-            const prev = parseInt(localStorage.getItem('sidebar.prevWidthAutoHidden')||localStorage.getItem('sidebarWidth')||'384',10);
-            const w = applyWidthClamped(prev);
-            try { localStorage.setItem('sidebarWidth', String(w)); } catch {}
+            const prevAuto = getPrevBeforeAutoHide();
+            const fallback = getCurrentWidth();
+            const target = (prevAuto == null ? fallback : prevAuto);
+            const w = applyWidthClamped(target);
+            setCurrentWidth(w);
             applySidebarVisibility();
           }
           // Expose scheduler globally for board interactions
@@ -2552,7 +2719,7 @@
             return clamped;
           }
           function loadWidth(){
-            const w = parseInt(localStorage.getItem('sidebarWidth') || '384', 10);
+            const w = getCurrentWidth();
             applyWidthClamped(w);
           }
           loadWidth();
@@ -2592,7 +2759,7 @@
             dragging = false;
             document.body.classList.remove('select-none');
             document.body.style.cursor = '';
-            localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width||'384',10));
+            setCurrentWidth(parseInt(sidebar.style.width||'384',10));
             suspendAutoHide = false; scheduleAutoHide();
             if (dragFromToggle) {
               if (cancelToggleClick) {
@@ -2893,9 +3060,9 @@
                   const resizerWidth = resizer ? (resizer.offsetWidth || 0) : 0;
                   const maxSidebar = Math.max(260, containerWidth - resizerWidth);
                   const prevW = parseInt(sidebar.style.width || sidebar.offsetWidth || '384', 10);
-                  localStorage.setItem(PREV_W_KEY, String(prevW));
+                  try { localStorage.setItem(PREV_W_KEY, String(prevW)); localStorage.setItem('sidebar.width.prevBeforeFs', String(prevW)); } catch {}
+                  // Apply fullscreen width to DOM only; do not overwrite normal width key
                   sidebar.style.width = maxSidebar + 'px';
-                  localStorage.setItem('sidebarWidth', String(maxSidebar));
                 } catch {}
                 if (btnFullscreen) btnFullscreen.textContent = 'Exit Fullscreen';
                 try { cy.resize(); } catch {}
@@ -2905,9 +3072,10 @@
                 // Restore height and width
                 setVar(load());
                 try {
-                  const prev = parseInt(localStorage.getItem(PREV_W_KEY) || '384', 10);
+                  const prev = parseInt(localStorage.getItem('sidebar.width.prevBeforeFs') || localStorage.getItem(PREV_W_KEY) || '384', 10);
                   sidebar.style.width = prev + 'px';
-                  localStorage.setItem('sidebarWidth', String(prev));
+                  // Update current width to restored value for consistency
+                  try { localStorage.setItem('sidebar.width.current', String(prev)); localStorage.setItem('sidebarWidth', String(prev)); } catch {}
                 } catch {}
                 if (btnFullscreen) btnFullscreen.textContent = 'Fullscreen';
                 try { cy.resize(); } catch {}
@@ -2915,7 +3083,8 @@
             }
             if (btnFullscreen){
               btnFullscreen.addEventListener('click', () => { const ns = !isFs(); setFs(ns); applyFullscreen(ns); });
-              applyFullscreen(isFs());
+              // Do not auto-apply fullscreen on init; ensure normal state
+              try { setFs(false); if (btnFullscreen) btnFullscreen.textContent = 'Fullscreen'; } catch {}
             }
           }
         })();

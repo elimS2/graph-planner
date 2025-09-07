@@ -4,8 +4,6 @@ from flask_login import LoginManager
 from flask_marshmallow import Marshmallow
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from typing import Optional
 
 
@@ -13,7 +11,7 @@ db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
 ma = Marshmallow()
-scheduler: Optional[BackgroundScheduler] = None
+scheduler = None  # type: ignore[assignment]
 
 # Enable SQLite foreign keys to prevent ghost references
 @event.listens_for(Engine, "connect")
@@ -27,10 +25,17 @@ def _set_sqlite_fk(dbapi_connection, connection_record):  # type: ignore[no-rede
 
 
 def init_scheduler(app) -> None:
+    """Initialize APScheduler if available; fail gracefully if not installed."""
     global scheduler
-    if scheduler and scheduler.running:
-        return
+    if scheduler is not None:
+        try:
+            if getattr(scheduler, 'running', False):
+                return
+        except Exception:
+            pass
     try:
+        from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
+        from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore  # type: ignore
         jobstores = {
             'default': SQLAlchemyJobStore(url=app.config.get('SQLALCHEMY_DATABASE_URI'))
         }
@@ -39,5 +44,9 @@ def init_scheduler(app) -> None:
         scheduler = sched
         app.logger.info('[scheduler] started with SQLAlchemyJobStore')
     except Exception:
-        app.logger.exception('[scheduler] failed to start')
+        scheduler = None
+        try:
+            app.logger.exception('[scheduler] failed to start (optional)')
+        except Exception:
+            pass
 

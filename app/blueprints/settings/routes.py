@@ -15,8 +15,12 @@ from ...utils.env_reader import read_dotenv_values, is_sensitive_key, mask_value
 from ...services.backups import perform_sqlite_backup, BackupError
 from ...utils.process import spawn_detached_silent
 from ... import extensions as ext
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
+try:
+    from apscheduler.triggers.cron import CronTrigger  # type: ignore
+    from apscheduler.triggers.interval import IntervalTrigger  # type: ignore
+except Exception:  # pragma: no cover
+    CronTrigger = None  # type: ignore
+    IntervalTrigger = None  # type: ignore
 from ...services.scheduler_jobs import backup_db_job
 
 
@@ -307,17 +311,23 @@ def set_backup_schedule():
         if mode == 'daily':
             hour = int(js.get('hour') or 0)
             minute = int(js.get('minute') or 0)
+            if not CronTrigger:
+                return jsonify({"errors":[{"status":500,"title":"Scheduler unavailable"}]}), 500
             trigger = CronTrigger(hour=hour, minute=minute)
         elif mode == 'weekly':
             hour = int(js.get('hour') or 0)
             minute = int(js.get('minute') or 0)
             weekday = str(js.get('weekday') or 'mon')
+            if not CronTrigger:
+                return jsonify({"errors":[{"status":500,"title":"Scheduler unavailable"}]}), 500
             trigger = CronTrigger(day_of_week=weekday, hour=hour, minute=minute)
         elif mode == 'cron':
             expr = str(js.get('cron') or '').strip()
             if not expr:
                 return jsonify({"errors":[{"status":400,"title":"Invalid cron","detail":"Cron expression is required"}]}), 400
             try:
+                if not CronTrigger:
+                    return jsonify({"errors":[{"status":500,"title":"Scheduler unavailable"}]}), 500
                 trigger = CronTrigger.from_crontab(expr)
             except Exception as e:
                 return jsonify({"errors":[{"status":400,"title":"Invalid cron","detail":str(e)}]}), 400
@@ -325,6 +335,8 @@ def set_backup_schedule():
             every = int(js.get('every_hours') or 0)
             if every < 1:
                 return jsonify({"errors":[{"status":400,"title":"Invalid interval","detail":"every_hours must be >= 1"}]}), 400
+            if not IntervalTrigger:
+                return jsonify({"errors":[{"status":500,"title":"Scheduler unavailable"}]}), 500
             trigger = IntervalTrigger(hours=every)
         else:
             return jsonify({"errors":[{"status":400,"title":"Invalid mode","detail":"Unsupported scheduling mode"}]}), 400

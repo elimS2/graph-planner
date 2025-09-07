@@ -53,6 +53,24 @@ class CommentSchema(Schema):
     updated_at = fields.String(dump_only=True)
 
 
+class AttachmentSchema(Schema):
+    id = fields.String(dump_only=True)
+    mime_type = fields.String()
+    kind = fields.String()
+    original_name = fields.String(allow_none=True)
+    storage_path = fields.String(dump_only=True)
+    size_bytes = fields.Integer(allow_none=True)
+    width = fields.Integer(allow_none=True)
+    height = fields.Integer(allow_none=True)
+    checksum_sha256 = fields.String(allow_none=True)
+    created_at = fields.String(dump_only=True)
+
+
+class CommentWithAttachmentsSchema(CommentSchema):
+    attachments = fields.Nested(AttachmentSchema, many=True, dump_only=True)
+    attachment_ids = fields.List(fields.String(), load_only=True)
+
+
 class TimeEntrySchema(Schema):
     id = fields.String(dump_only=True)
     node_id = fields.String(required=True, load_only=True)
