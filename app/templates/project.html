@@ -28,11 +28,23 @@
 
       /* Sidebar collapsed polish: remove padding/shadow when nearly zero width */
       #sidebar.collapsed { padding: 0 !important; box-shadow: none !important; }
+
+      /* Header auto-hide animation + layout collapse */
+      #headerBar { transition: transform 160ms ease, height 160ms ease, padding 160ms ease; will-change: transform, height, padding; }
+      #headerBar.header-hidden {
+        transform: translateY(-100%);
+        height: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        margin-bottom: 0 !important;
+        overflow: hidden !important;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
     <div class="flex flex-col h-screen">
-      <div class="flex items-center justify-between px-4 py-3">
+      <div id="headerBar" class="flex items-center justify-between px-4 py-3">
         <h1 id="projTitle" class="text-2xl font-semibold cursor-text" contenteditable="true" spellcheck="false">{{ project.name }}</h1>
         <div class="flex items-center gap-3">
           <span id="userEmail" class="text-sm text-slate-600 hidden"></span>
@@ -504,6 +516,20 @@
                 <p class="text-xs text-slate-500">Width of the sensitive area near the right edge that triggers auto-reveal.</p>
                 <label class="inline-flex items-center gap-2"><input id="autoHideRespectZero" type="checkbox" class="align-middle"><span>Treat width = 0 as pinned</span></label>
                 <p class="text-xs text-slate-500">When checked, auto-hide ignores a manually collapsed width of 0 until you expand again.</p>
+              </div>
+            </div>
+            <div id="autoHideHeaderBlock" class="rounded border p-3 bg-white space-y-2">
+              <button id="autoHideHeaderToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="autoHideHeaderBody">
+                <span>Auto-Hide Header</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="autoHideHeaderBody" class="space-y-2 text-sm">
+                <label class="inline-flex items-center gap-2"><input id="autoHideHeaderEnabled" type="checkbox" class="align-middle"><span>Enable auto-hide</span></label>
+                <p class="text-xs text-slate-500">When enabled, the header hides after inactivity and reappears when you move the pointer to the top edge.</p>
+                <label class="inline-flex items-center gap-2"><span>Idle delay</span><input id="autoHideHeaderDelay" type="number" min="500" max="30000" step="100" class="border rounded px-2 py-1 w-24" value="2000"><span>ms</span></label>
+                <p class="text-xs text-slate-500">Time to wait after the header loses focus/hover before it auto-hides.</p>
+                <label class="inline-flex items-center gap-2"><span>Top edge hot zone</span><input id="autoHideHeaderEdge" type="number" min="1" max="32" step="1" class="border rounded px-2 py-1 w-20" value="6"><span>px</span></label>
+                <p class="text-xs text-slate-500">Height of the sensitive area near the top edge that triggers auto-reveal.</p>
               </div>
             </div>
           </div>
@@ -2621,6 +2647,43 @@
           toggleBtn.addEventListener('click', () => { setTimeout(() => { syncResizer(); cy.resize(); }, 0); });
         })();
 
+        // Header Auto-Hide Engine
+        (function setupHeaderAutoHide(){
+          const header = document.getElementById('headerBar');
+          if (!header) return;
+          let timer = null;
+          let hover = false;
+          function getEnabled(){ try { return localStorage.getItem('header.autoHide.enabled') === '1'; } catch { return false; } }
+          function getDelay(){ try { return Math.max(500, parseInt(localStorage.getItem('header.autoHide.delayMs')||'2000',10)); } catch { return 2000; } }
+          function getEdge(){ try { return Math.max(1, parseInt(localStorage.getItem('header.autoHide.edgePx')||'6',10)); } catch { return 6; } }
+          function clear(){ if (timer){ clearTimeout(timer); timer=null; } }
+          function schedule(){
+            if (!getEnabled()) return;
+            if (hover) return;
+            clear();
+            timer = setTimeout(()=>{ if (!hover) header.classList.add('header-hidden'); }, getDelay());
+          }
+          function reveal(){ header.classList.remove('header-hidden'); clear(); }
+          // expose
+          try { window.headerAutoHide = { schedule, reveal, cancel: clear }; } catch {}
+          header.addEventListener('mouseenter', ()=>{ hover = true; clear(); });
+          header.addEventListener('mouseleave', ()=>{ hover = false; schedule(); });
+          header.addEventListener('focusin', clear);
+          header.addEventListener('focusout', schedule);
+          // Top-edge reveal
+          let deb = null;
+          window.addEventListener('mousemove', (e)=>{
+            if (!getEnabled()) return;
+            if (!header.classList.contains('header-hidden')) return;
+            if (e.clientY <= getEdge()){
+              if (deb) return;
+              deb = setTimeout(()=>{ deb=null; reveal(); }, 80);
+            } else if (deb) { clearTimeout(deb); deb=null; }
+          });
+          // Start initial schedule after load
+          schedule();
+        })();
+
         // Panel tabs: Task | Actions | Settings
         const tabTask = document.getElementById('tabTask');
         const tabActions = document.getElementById('tabActions');
@@ -2910,6 +2973,7 @@
           wireCollapsibleSection({ toggleId: 'visibilityToggle', bodyId: 'visibilityBody', storageKey: 'sidebar.settings.visibility.collapsed' });
           wireCollapsibleSection({ toggleId: 'zoomToggle', bodyId: 'zoomBody', storageKey: 'sidebar.settings.zoom.collapsed' });
           wireCollapsibleSection({ toggleId: 'autoHideToggle', bodyId: 'autoHideBody', storageKey: 'sidebar.settings.autohide.collapsed' });
+          wireCollapsibleSection({ toggleId: 'autoHideHeaderToggle', bodyId: 'autoHideHeaderBody', storageKey: 'sidebar.settings.autohideHeader.collapsed' });
           // Apply and wire reorder behavior
           applyPanelOrder(settingsPanel, ORDER_KEYS.settings, DEFAULT_SETTINGS_IDS);
           wireReorderablePanel(settingsPanel, ORDER_KEYS.settings, DEFAULT_SETTINGS_IDS);
@@ -2931,6 +2995,20 @@
             delay.addEventListener('change', ()=>{ const v=Math.max(500, parseInt(delay.value||'3000',10)); delay.value=String(v); try { localStorage.setItem('sidebar.autoHide.delayMs', String(v)); } catch {} });
             edge.addEventListener('change', ()=>{ const v=Math.max(1, parseInt(edge.value||'6',10)); edge.value=String(v); try { localStorage.setItem('sidebar.autoHide.edgePx', String(v)); } catch {} });
             respect.addEventListener('change', ()=>{ try { localStorage.setItem('sidebar.autoHide.respectZero', respect.checked ? '1':'0'); } catch {} });
+            en.dataset.wired = '1';
+          })();
+          // Wire Header Auto-Hide settings inputs (idempotent)
+          (function wireHeaderAutoHideSettings(){
+            const en = document.getElementById('autoHideHeaderEnabled');
+            const delay = document.getElementById('autoHideHeaderDelay');
+            const edge = document.getElementById('autoHideHeaderEdge');
+            if (!en || en.dataset.wired === '1') return;
+            try { en.checked = localStorage.getItem('header.autoHide.enabled') === '1'; } catch {}
+            try { delay.value = String(Math.max(500, parseInt(localStorage.getItem('header.autoHide.delayMs')||delay.value||'2000',10))); } catch {}
+            try { edge.value = String(Math.max(1, parseInt(localStorage.getItem('header.autoHide.edgePx')||edge.value||'6',10))); } catch {}
+            en.addEventListener('change', ()=>{ try { localStorage.setItem('header.autoHide.enabled', en.checked ? '1':'0'); } catch {} });
+            delay.addEventListener('change', ()=>{ const v=Math.max(500, parseInt(delay.value||'2000',10)); delay.value=String(v); try { localStorage.setItem('header.autoHide.delayMs', String(v)); } catch {} });
+            edge.addEventListener('change', ()=>{ const v=Math.max(1, parseInt(edge.value||'6',10)); edge.value=String(v); try { localStorage.setItem('header.autoHide.edgePx', String(v)); } catch {} });
             en.dataset.wired = '1';
           })();
         }
