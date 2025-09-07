@@ -490,6 +490,22 @@
                 </div>
               </div>
             </div>
+            <div id="autoHideBlock" class="rounded border p-3 bg-white space-y-2">
+              <button id="autoHideToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="autoHideBody">
+                <span>Auto-Hide Sidebar</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="autoHideBody" class="space-y-2 text-sm">
+                <label class="inline-flex items-center gap-2"><input id="autoHideEnabled" type="checkbox" class="align-middle"><span>Enable auto-hide</span></label>
+                <p class="text-xs text-slate-500">When enabled, the sidebar hides after inactivity and reappears when you move the pointer to the right screen edge.</p>
+                <label class="inline-flex items-center gap-2"><span>Idle delay</span><input id="autoHideDelay" type="number" min="500" max="30000" step="100" class="border rounded px-2 py-1 w-24" value="3000"><span>ms</span></label>
+                <p class="text-xs text-slate-500">Time to wait after the sidebar loses focus/hover before it auto-hides.</p>
+                <label class="inline-flex items-center gap-2"><span>Right edge hot zone</span><input id="autoHideEdge" type="number" min="1" max="32" step="1" class="border rounded px-2 py-1 w-20" value="6"><span>px</span></label>
+                <p class="text-xs text-slate-500">Width of the sensitive area near the right edge that triggers auto-reveal.</p>
+                <label class="inline-flex items-center gap-2"><input id="autoHideRespectZero" type="checkbox" class="align-middle"><span>Treat width = 0 as pinned</span></label>
+                <p class="text-xs text-slate-500">When checked, auto-hide ignores a manually collapsed width of 0 until you expand again.</p>
+              </div>
+            </div>
           </div>
         </aside>
       </div>
@@ -603,7 +619,7 @@
       // Sidebar reorder helpers (top-level)
       const ORDER_KEYS = { task: 'sidebar.task.order', settings: 'sidebar.settings.order' };
       const DEFAULT_TASK_IDS = ['taskSelectionLinkBlock','taskMetadataBlock','taskStatusPriorityBlock','taskVisibilityBlock','taskCommentsBlock','taskHistoryBlock','taskTimeBlock','taskCostsBlock','taskDangerBlock'];
-      const DEFAULT_SETTINGS_IDS = ['lodBlock','scheduleBlock','serverInfo','envBlock','visibilityBlock','translationBlock'];
+      const DEFAULT_SETTINGS_IDS = ['lodBlock','scheduleBlock','serverInfo','envBlock','visibilityBlock','autoHideBlock','translationBlock'];
       function loadOrder(key){ try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
       function saveOrder(key, ids){ try { localStorage.setItem(key, JSON.stringify(ids || [])); } catch {} }
       function applyPanelOrder(panelEl, storageKey, defaultIds){
@@ -2000,6 +2016,39 @@
         cy.on('zoom', checkAndAutoOpenLinkOnOversized);
 
         // Reset helpers
+        // Ensure sidebar reveals on node tap if hidden
+        (function wireRevealSidebarOnNodeTap(){
+          if (window.__wiredRevealOnTap === '1') return;
+          try { window.__wiredRevealOnTap = '1'; } catch {}
+          cy.on('tap','node', () => {
+            try {
+              if (localStorage.getItem('sidebarHidden') === '1'){
+                const sidebar = document.getElementById('sidebar');
+                const resizer = document.getElementById('resizer');
+                const container = (resizer && resizer.parentElement) ? resizer.parentElement : (sidebar && sidebar.parentElement ? sidebar.parentElement : document.body);
+                const containerWidth = container ? container.clientWidth : window.innerWidth;
+                const thresholdPx = Math.max(1, Math.floor(containerWidth * 0.05));
+                const DEFAULT_W = 384;
+                const curW = parseInt(sidebar.style.width || sidebar.offsetWidth || '0', 10) || 0;
+                localStorage.setItem('sidebarHidden','0');
+                if (curW < thresholdPx){
+                  sidebar.style.width = DEFAULT_W + 'px';
+                  try { sidebar.classList.remove('collapsed'); } catch {}
+                  try { localStorage.setItem('sidebarWidth', String(DEFAULT_W)); } catch {}
+                }
+                applySidebarVisibility();
+              }
+            } catch {}
+          });
+        })();
+        // After interactions outside the sidebar (empty board click / pan), start auto-hide countdown
+        (function wireAutoHideOnBoardInteraction(){
+          if (window.__wiredAutoHideBoard === '1') return;
+          try { window.__wiredAutoHideBoard = '1'; } catch {}
+          const sched = () => { try { if (window.sidebarAutoHide) window.sidebarAutoHide.schedule(); } catch {} };
+          cy.on('tap', (evt) => { if (evt.target === cy) sched(); });
+          cy.on('pan', sched);
+        })();
         // Ensure auto-open can trigger again after browser back/forward (BFCache restore)
         try {
           window.addEventListener('pageshow', () => {
@@ -2424,6 +2473,40 @@
           const sidebar = document.getElementById('sidebar');
           const MIN_SIDEBAR = 0;
           const MIN_LEFT = 0; // allow full-width sidebar
+          // Auto-hide state
+          let autoHideTimer = null;
+          let suspendAutoHide = false;
+          let isPointerOverSidebarArea = false;
+          function getAutoHideEnabled(){ try { return localStorage.getItem('sidebar.autoHide.enabled') === '1'; } catch { return false; } }
+          function getAutoHideDelay(){ try { return Math.max(500, parseInt(localStorage.getItem('sidebar.autoHide.delayMs')||'3000',10)); } catch { return 3000; } }
+          function getEdgePx(){ try { return Math.max(1, parseInt(localStorage.getItem('sidebar.autoHide.edgePx')||'6',10)); } catch { return 6; } }
+          function getRespectZero(){ try { return localStorage.getItem('sidebar.autoHide.respectZero') === '1'; } catch { return false; } }
+          function clearAutoTimer(){ if (autoHideTimer){ clearTimeout(autoHideTimer); autoHideTimer = null; } }
+          function scheduleAutoHide(){
+            if (!getAutoHideEnabled()) return;
+            if (suspendAutoHide) return;
+            try { if (localStorage.getItem('sidebarHidden') === '1') return; } catch {}
+            if (isPointerOverSidebarArea) return;
+            clearAutoTimer();
+            autoHideTimer = setTimeout(()=>{
+              // Do not auto-hide if explicitly pinned at 0 (optional)
+              const curW = parseInt(sidebar.style.width || sidebar.offsetWidth || '0', 10) || 0;
+              if (getRespectZero() && curW === 0) return;
+              try { localStorage.setItem('sidebar.prevWidthAutoHidden', String(curW)); } catch {}
+              localStorage.setItem('sidebarHidden','1');
+              applySidebarVisibility();
+            }, getAutoHideDelay());
+          }
+          function cancelAutoHide(){ clearAutoTimer(); }
+          function restoreFromAutoHide(){
+            localStorage.setItem('sidebarHidden','0');
+            const prev = parseInt(localStorage.getItem('sidebar.prevWidthAutoHidden')||localStorage.getItem('sidebarWidth')||'384',10);
+            const w = applyWidthClamped(prev);
+            try { localStorage.setItem('sidebarWidth', String(w)); } catch {}
+            applySidebarVisibility();
+          }
+          // Expose scheduler globally for board interactions
+          try { window.sidebarAutoHide = { schedule: scheduleAutoHide, cancel: cancelAutoHide }; } catch {}
           function getContainer(){ return resizer && resizer.parentElement ? resizer.parentElement : (sidebar && sidebar.parentElement ? sidebar.parentElement : document.body); }
           function computeMaxSidebar(){
             const container = getContainer();
@@ -2456,6 +2539,7 @@
           resizer.addEventListener('mousedown', (e) => {
             dragging = true; startX = e.clientX; startW = sidebar.offsetWidth;
             document.body.classList.add('select-none'); document.body.style.cursor = 'col-resize';
+            suspendAutoHide = true; cancelAutoHide();
             e.preventDefault();
           });
           // Allow resizing via the Toggle Sidebar button as a secondary handle
@@ -2473,6 +2557,7 @@
               dragging = true; dragFromToggle = true; cancelToggleClick = false;
               startX = e.clientX; startW = sidebar.offsetWidth;
               document.body.classList.add('select-none'); document.body.style.cursor = 'col-resize';
+              suspendAutoHide = true; cancelAutoHide();
               e.preventDefault();
             });
           }
@@ -2482,6 +2567,7 @@
             document.body.classList.remove('select-none');
             document.body.style.cursor = '';
             localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width||'384',10));
+            suspendAutoHide = false; scheduleAutoHide();
             if (dragFromToggle) {
               if (cancelToggleClick) {
                 const kill = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
@@ -2499,6 +2585,30 @@
             if (dragFromToggle && !cancelToggleClick && Math.abs(delta) > DRAG_CLICK_SLOP) cancelToggleClick = true;
             applyWidthClamped(proposed);
             cy.resize();
+          });
+          // Hover/focus detection for auto-hide
+          // Hover/focus wiring with explicit hover state
+          sidebar.addEventListener('mouseenter', ()=>{ isPointerOverSidebarArea = true; cancelAutoHide(); });
+          resizer.addEventListener('mouseenter', ()=>{ isPointerOverSidebarArea = true; cancelAutoHide(); });
+          sidebar.addEventListener('mouseleave', ()=>{ isPointerOverSidebarArea = false; scheduleAutoHide(); });
+          resizer.addEventListener('mouseleave', ()=>{ isPointerOverSidebarArea = false; scheduleAutoHide(); });
+          sidebar.addEventListener('focusin', cancelAutoHide);
+          resizer.addEventListener('focusin', cancelAutoHide);
+          sidebar.addEventListener('focusout', scheduleAutoHide);
+          resizer.addEventListener('focusout', scheduleAutoHide);
+          // Edge hot zone reveal
+          let edgeDebounce = null;
+          window.addEventListener('mousemove', (e)=>{
+            if (!getAutoHideEnabled()) return;
+            const hidden = localStorage.getItem('sidebarHidden') === '1';
+            if (!hidden) return; // only reveal when hidden
+            const vw = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth || 0;
+            if ((vw - e.clientX) <= getEdgePx()){
+              if (edgeDebounce) return;
+              edgeDebounce = setTimeout(()=>{ edgeDebounce = null; restoreFromAutoHide(); }, 80);
+            } else {
+              if (edgeDebounce){ clearTimeout(edgeDebounce); edgeDebounce = null; }
+            }
           });
           // Re-clamp on window resize to avoid overflow when viewport shrinks
           window.addEventListener('resize', () => {
@@ -2799,10 +2909,30 @@
           wireCollapsibleSection({ toggleId: 'translationToggle', bodyId: 'translationBody', storageKey: 'sidebar.settings.translation.collapsed' });
           wireCollapsibleSection({ toggleId: 'visibilityToggle', bodyId: 'visibilityBody', storageKey: 'sidebar.settings.visibility.collapsed' });
           wireCollapsibleSection({ toggleId: 'zoomToggle', bodyId: 'zoomBody', storageKey: 'sidebar.settings.zoom.collapsed' });
+          wireCollapsibleSection({ toggleId: 'autoHideToggle', bodyId: 'autoHideBody', storageKey: 'sidebar.settings.autohide.collapsed' });
           // Apply and wire reorder behavior
           applyPanelOrder(settingsPanel, ORDER_KEYS.settings, DEFAULT_SETTINGS_IDS);
           wireReorderablePanel(settingsPanel, ORDER_KEYS.settings, DEFAULT_SETTINGS_IDS);
           ensureSettingsLoaded();
+          // Wire Auto-Hide settings inputs (idempotent)
+          (function wireAutoHideSettings(){
+            const en = document.getElementById('autoHideEnabled');
+            const delay = document.getElementById('autoHideDelay');
+            const edge = document.getElementById('autoHideEdge');
+            const respect = document.getElementById('autoHideRespectZero');
+            if (!en || en.dataset.wired === '1') return;
+            // Load
+            try { en.checked = localStorage.getItem('sidebar.autoHide.enabled') === '1'; } catch {}
+            try { delay.value = String(Math.max(500, parseInt(localStorage.getItem('sidebar.autoHide.delayMs')||delay.value||'3000',10))); } catch {}
+            try { edge.value = String(Math.max(1, parseInt(localStorage.getItem('sidebar.autoHide.edgePx')||edge.value||'6',10))); } catch {}
+            try { respect.checked = localStorage.getItem('sidebar.autoHide.respectZero') === '1'; } catch {}
+            // Save
+            en.addEventListener('change', ()=>{ try { localStorage.setItem('sidebar.autoHide.enabled', en.checked ? '1':'0'); } catch {} });
+            delay.addEventListener('change', ()=>{ const v=Math.max(500, parseInt(delay.value||'3000',10)); delay.value=String(v); try { localStorage.setItem('sidebar.autoHide.delayMs', String(v)); } catch {} });
+            edge.addEventListener('change', ()=>{ const v=Math.max(1, parseInt(edge.value||'6',10)); edge.value=String(v); try { localStorage.setItem('sidebar.autoHide.edgePx', String(v)); } catch {} });
+            respect.addEventListener('change', ()=>{ try { localStorage.setItem('sidebar.autoHide.respectZero', respect.checked ? '1':'0'); } catch {} });
+            en.dataset.wired = '1';
+          })();
         }
         tabTask.addEventListener('click', showTask);
         if (tabActions) tabActions.addEventListener('click', showActions);
