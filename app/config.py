@@ -70,6 +70,14 @@ class BaseConfig:
         or ""
     ).strip()
 
+    # Google OAuth configuration
+    GOOGLE_OAUTH_ENABLED = (_get_env("GOOGLE_OAUTH_ENABLED", "1").strip() != "0")
+    GOOGLE_OAUTH_CLIENT_ID = _get_env("GOOGLE_OAUTH_CLIENT_ID")
+    GOOGLE_OAUTH_CLIENT_SECRET = _get_env("GOOGLE_OAUTH_CLIENT_SECRET")
+    GOOGLE_OAUTH_REDIRECT_URI = _get_env("GOOGLE_OAUTH_REDIRECT_URI")
+    GOOGLE_OAUTH_SCOPES = _get_env("GOOGLE_OAUTH_SCOPES", "openid email profile")
+    GOOGLE_OAUTH_HD = _get_env("GOOGLE_OAUTH_HD")  # optional hosted domain restriction
+
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True

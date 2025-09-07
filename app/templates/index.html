@@ -12,7 +12,9 @@
       <header class="flex items-center justify-between">
         <h1 class="text-2xl font-semibold">Graph Tracker</h1>
         <div class="flex items-center gap-3" id="authBox">
+          <img id="userAvatar" class="w-7 h-7 rounded-full hidden" alt="User avatar" />
           <span id="userEmail" class="text-sm text-slate-600 hidden"></span>
+          <a id="btnLoginGoogle" href="/api/v1/auth/google/login" class="px-3 py-1 bg-red-600 text-white rounded">Sign in with Google</a>
           <button id="btnLogin" class="px-3 py-1 bg-slate-700 text-white rounded">Login</button>
           <button id="btnLogout" class="px-3 py-1 bg-slate-500 text-white rounded hidden">Logout</button>
           <a class="text-blue-600 underline" href="/api/v1/health">Health</a>
@@ -72,19 +74,25 @@
 
       function wireAuthHeader(){
         const emailEl = document.getElementById('userEmail');
+        const avatarEl = document.getElementById('userAvatar');
         const btnLogin = document.getElementById('btnLogin');
+        const btnLoginGoogle = document.getElementById('btnLoginGoogle');
         const btnLogout = document.getElementById('btnLogout');
         async function refresh(){
           const me = await apiMe();
           if (me && me.id){
-            emailEl.textContent = me.id; // simple display
+            emailEl.textContent = me.email || me.id;
             emailEl.classList.remove('hidden');
+            if (me.avatar_url){ avatarEl.src = me.avatar_url; avatarEl.classList.remove('hidden'); } else { avatarEl.classList.add('hidden'); }
             btnLogout.classList.remove('hidden');
             btnLogin.classList.add('hidden');
+            btnLoginGoogle.classList.add('hidden');
           } else {
             emailEl.classList.add('hidden');
+            avatarEl.classList.add('hidden');
             btnLogout.classList.add('hidden');
             btnLogin.classList.remove('hidden');
+            btnLoginGoogle.classList.remove('hidden');
           }
         }
         btnLogin.addEventListener('click', async ()=>{

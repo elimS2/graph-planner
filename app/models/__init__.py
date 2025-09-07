@@ -39,6 +39,8 @@ class User(UserMixin, db.Model, TimestampMixin):
     name: Mapped[str] = mapped_column(db.String, nullable=False)
     role: Mapped[str] = mapped_column(db.String, nullable=False, default="user")
     password_hash: Mapped[str] = mapped_column(db.String, nullable=True)
+    google_sub: Mapped[Optional[str]] = mapped_column(db.String, nullable=True, unique=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(db.String, nullable=True)
 
     comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
     time_entries = relationship("TimeEntry", back_populates="user", cascade="all, delete-orphan")

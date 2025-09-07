@@ -47,7 +47,9 @@
       <div id="headerBar" class="flex items-center justify-between px-4 py-3">
         <h1 id="projTitle" class="text-2xl font-semibold cursor-text" contenteditable="true" spellcheck="false">{{ project.name }}</h1>
         <div class="flex items-center gap-3">
+          <img id="userAvatar" class="w-7 h-7 rounded-full hidden" alt="User avatar" />
           <span id="userEmail" class="text-sm text-slate-600 hidden"></span>
+          <a id="btnLoginGoogle" href="/api/v1/auth/google/login" class="px-3 py-1 bg-red-600 text-white rounded">Sign in with Google</a>
           <button id="btnLogin" class="px-3 py-1 bg-slate-700 text-white rounded">Login</button>
           <button id="btnLogout" class="px-3 py-1 bg-slate-500 text-white rounded hidden">Logout</button>
           <a class="text-blue-600 underline" href="/">Home</a>
@@ -757,19 +759,25 @@
 
       function wireAuthHeader(){
         const emailEl = document.getElementById('userEmail');
+        const avatarEl = document.getElementById('userAvatar');
         const btnLogin = document.getElementById('btnLogin');
+        const btnLoginGoogle = document.getElementById('btnLoginGoogle');
         const btnLogout = document.getElementById('btnLogout');
         async function refresh(){
           const me = await apiMe();
           if (me && me.id){
-            emailEl.textContent = me.id;
+            emailEl.textContent = me.email || me.id;
             emailEl.classList.remove('hidden');
+            if (me.avatar_url){ avatarEl.src = me.avatar_url; avatarEl.classList.remove('hidden'); } else { avatarEl.classList.add('hidden'); }
             btnLogout.classList.remove('hidden');
             btnLogin.classList.add('hidden');
+            btnLoginGoogle.classList.add('hidden');
           } else {
             emailEl.classList.add('hidden');
+            avatarEl.classList.add('hidden');
             btnLogout.classList.add('hidden');
             btnLogin.classList.remove('hidden');
+            btnLoginGoogle.classList.remove('hidden');
           }
         }
         btnLogin.addEventListener('click', async ()=>{
@@ -2006,6 +2014,8 @@
         }
         cy.on('zoom', applyLOD);
         applyLOD();
+        // Initialize zoom/render anchor at viewport center for anchor-based focus
+        let anchor = { x: Math.floor(cy.width() / 2), y: Math.floor(cy.height() / 2) };
         try { checkAndAutoOpenLinkOnOversized(); } catch {}
 
         // Pick a focus node when none is selected: prioritize node under viewport center with a link
@@ -2039,6 +2049,47 @@
               } catch {}
             });
             return best ? String(best.id()) : null;
+          } catch { return null; }
+        }
+
+        // Pick a node based on current zoom/render anchor (cursor-based), fallback to nearest within radius
+        function findNodeByAnchor(){
+          try {
+            const all = cy.nodes();
+            if (!all || all.length === 0) return null;
+            const vpW = cy.width();
+            const vpH = cy.height();
+            const ax = (anchor && typeof anchor.x === 'number') ? anchor.x : (vpW / 2);
+            const ay = (anchor && typeof anchor.y === 'number') ? anchor.y : (vpH / 2);
+            const RADIUS = 48; // px, conservative
+            let containing = null;
+            let nearest = null;
+            let nearestDist = Infinity;
+            let nearestArea = 0;
+            all.forEach(n => {
+              try {
+                if (!n || !n.nonempty()) return;
+                if (n.style('display') === 'none') return;
+                const url = String(n.data('link_url') || '').trim();
+                if (!url) return;
+                const box = n.renderedBoundingBox();
+                // containment first
+                if (box.x1 <= ax && ax <= box.x2 && box.y1 <= ay && ay <= box.y2) { containing = n; return; }
+                // nearest within radius
+                const nx = (box.x1 + box.x2) / 2; const ny = (box.y1 + box.y2) / 2;
+                const dx = nx - ax; const dy = ny - ay;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist <= RADIUS) {
+                  const area = (box.w || 0) * (box.h || 0);
+                  if (dist < nearestDist || (Math.abs(dist - nearestDist) < 0.0001 && area > nearestArea)) {
+                    nearest = n; nearestDist = dist; nearestArea = area;
+                  }
+                }
+              } catch {}
+            });
+            if (containing && containing.nonempty()) return String(containing.id());
+            if (nearest && nearest.nonempty()) return String(nearest.id());
+            return null;
           } catch { return null; }
         }
 
@@ -2109,7 +2160,7 @@
         function checkAndAutoOpenLinkOnOversized(){
           try {
             let idToCheck = selectedNodeId;
-            if (!idToCheck) { idToCheck = findFocusedNodeForZoom(); }
+            if (!idToCheck) { idToCheck = findNodeByAnchor(); }
             if (!idToCheck) return;
             const n = cy.getElementById(String(idToCheck));
             if (!n || !n.nonempty()) return;
@@ -2539,7 +2590,6 @@
         cy.userZoomingEnabled(false);
         const cyContainer = cy.container();
         let targetZoom = cy.zoom();
-        let anchor = { x: 0, y: 0 };
         let zooming = false;
         function stepZoom(){
           if (!zooming) return;
@@ -2557,6 +2607,11 @@
           targetZoom = Math.max(0.05, Math.min(50, targetZoom * factor));
           if (!zooming) { zooming = true; requestAnimationFrame(stepZoom); }
         }, { passive: false });
+        // Track mouse to keep anchor in sync even before wheel starts
+        cyContainer.addEventListener('mousemove', (e) => {
+          const rect = cyContainer.getBoundingClientRect();
+          anchor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        });
 
         // Toggle sidebar
         const sidebar = document.getElementById('sidebar');
@@ -2693,11 +2748,21 @@
             if (suspendAutoHide) return;
             try { if (localStorage.getItem('sidebarHidden') === '1') return; } catch {}
             if (isPointerOverSidebarArea) return;
+            // Do not schedule if focus is inside sidebar/resizer (e.g., typing in inputs)
+            try {
+              const active = document.activeElement;
+              if (active && (sidebar.contains(active) || (resizer && resizer.contains && resizer.contains(active)))) return;
+            } catch {}
             clearAutoTimer();
             autoHideTimer = setTimeout(()=>{
               // Do not auto-hide if explicitly pinned at 0 (optional)
               const curW = parseInt(sidebar.style.width || sidebar.offsetWidth || '0', 10) || 0;
               if (getRespectZero() && curW === 0) return;
+              // Abort if focus returned to sidebar/resizer during wait
+              try {
+                const activeNow = document.activeElement;
+                if (activeNow && (sidebar.contains(activeNow) || (resizer && resizer.contains && resizer.contains(activeNow)))) return;
+              } catch {}
               setPrevBeforeAutoHide(curW);
               localStorage.setItem('sidebarHidden','1');
               applySidebarVisibility();
