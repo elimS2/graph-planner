@@ -1779,7 +1779,7 @@
           const hint = document.createElement('div');
           hint.className = 'pointer-events-none fixed inset-x-0 top-16 text-center z-40';
           hint.style.display = 'none';
-          hint.innerHTML = '<span class="inline-block px-3 py-1 bg-black/70 text-white rounded">Connect mode: click source, then target (ESC to cancel, hold C/С for quick connect)</span>';
+          hint.innerHTML = '<span class="inline-block px-3 py-1 bg-black/70 text-white rounded">Connect mode: click source, then target (ESC to cancel, hold C for quick connect)</span>';
           document.body.appendChild(hint);
           function setActive(on){
             active = on; if (!on) { sourceId = null; cy.nodes().removeClass(srcClass); if (timeoutId) { clearTimeout(timeoutId); timeoutId=null; } cy.container().style.cursor=''; hint.style.display='none'; }
@@ -2016,6 +2016,8 @@
         applyLOD();
         // Initialize zoom/render anchor at viewport center for anchor-based focus
         let anchor = { x: Math.floor(cy.width() / 2), y: Math.floor(cy.height() / 2) };
+        const WHEEL_WINDOW_MS = 400;
+        let lastWheelAt = 0;
         try { checkAndAutoOpenLinkOnOversized(); } catch {}
 
         // Pick a focus node when none is selected: prioritize node under viewport center with a link
@@ -2159,8 +2161,15 @@
         // Auto-open link when selected (or focused) node becomes large relative to viewport
         function checkAndAutoOpenLinkOnOversized(){
           try {
-            let idToCheck = selectedNodeId;
-            if (!idToCheck) { idToCheck = findNodeByAnchor(); }
+            let idToCheck = null;
+            const anchorPrefEnabled = (function(){ try { return localStorage.getItem('zoom.anchorPrecedence.enabled') !== '0'; } catch { return true; } })();
+            const isWheelZoom = (Date.now() - lastWheelAt) <= WHEEL_WINDOW_MS;
+            if (anchorPrefEnabled && isWheelZoom) {
+              const byAnchor = findNodeByAnchor();
+              idToCheck = byAnchor || selectedNodeId || null;
+            } else {
+              idToCheck = selectedNodeId || findNodeByAnchor() || null;
+            }
             if (!idToCheck) return;
             const n = cy.getElementById(String(idToCheck));
             if (!n || !n.nonempty()) return;
@@ -2284,7 +2293,7 @@
         }
         document.getElementById('btnResetView').addEventListener('click', showAllAndFit);
 
-        // Auto self-heal: if after initial render ничего не видно — сбросить вид
+        // Auto self-heal: if after initial render nothing is visible — reset view
         setTimeout(() => {
           try {
             const vis = visibleCount();
@@ -2601,6 +2610,7 @@
         }
         cyContainer.addEventListener('wheel', (e) => {
           e.preventDefault();
+          lastWheelAt = Date.now();
           const rect = cyContainer.getBoundingClientRect();
           anchor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
           const factor = Math.exp(-e.deltaY * 0.0012); // slightly faster response

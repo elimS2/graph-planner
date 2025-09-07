@@ -69,7 +69,7 @@ def main() -> int:
             nodes = http_json(f"{base}/api/v1/projects/{proj_id}/nodes", timeout=5.0)
             nitems: List[Dict[str, Any]] = (nodes.get("data") or []) if isinstance(nodes, dict) else []
             with_history: List[Dict[str, Any]] = []
-            panel_title = "цвет линий"
+            panel_title = "Line colors"
             panel_node_id: Optional[str] = None
             for n in nitems:
                 if isinstance(n, dict) and str(n.get("title") or "") == panel_title:

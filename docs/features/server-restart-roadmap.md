@@ -177,7 +177,7 @@ Implemented reliability/UX improvements and status reporting:
 ### Plan — next steps to reach green test (PID change)
 
 1) Validate end-to-end via test script `scripts/tests/restart_via_api.py` — DONE (PID changed, status `restarted`).
-2) UI polish — DONE: toast shows `PID before→after` after успешного рестарта.
+2) UI polish — DONE: toast shows `PID before→after` after a successful restart.
 3) Document op_id artifacts — DONE: `instance/restart_ops/<op_id>.json` records `pid_before`/`pid_after`/`status`.
 4) Optional: expose `pid_before`/`pid_after` in UI Server Info after reload (future enhancement if needed).
 

@@ -38,7 +38,7 @@ def main() -> int:
     port = int(envv.get("PORT") or 5050)
     base_url = f"{host}:{port}"
 
-    title = "цвет линий"
+    title = "Line colors"
     out: Dict[str, Any] = {"action": "check_panel_node_history", "base_url": base_url, "title": title}
     try:
         # find project by name
