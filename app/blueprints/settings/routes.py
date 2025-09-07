@@ -12,6 +12,7 @@ import json
 import uuid
 
 from ...utils.env_reader import read_dotenv_values, is_sensitive_key, mask_value
+from ...services.backups import perform_sqlite_backup, BackupError
 from ...utils.process import spawn_detached_silent
 
 
@@ -198,3 +199,59 @@ def get_restart_status(op_id: str):
         return jsonify({"errors": [{"status": 500, "title": "Read error", "detail": str(e)}]}), 500
     return jsonify({"data": js})
 
+
+@bp.post("/settings/backup-db")
+def backup_db():
+    """Create a database backup into the directory specified by BACKUPS_DIR in .env.
+
+    Success: { data: { ok, path, size_bytes, created_at } }
+    Errors:
+      - 400 if BACKUPS_DIR is missing/empty or DB engine unsupported
+      - 500 on unexpected I/O errors
+    """
+    # Resolve project root
+    here = Path(__file__).resolve()
+    root = here.parents[3]
+
+    envv = read_dotenv_values(root)
+    backups_dir_raw = (envv.get("BACKUPS_DIR") or "").strip()
+    if not backups_dir_raw:
+        return jsonify({
+            "errors": [{
+                "status": 400,
+                "title": "Missing BACKUPS_DIR",
+                "detail": "Provide BACKUPS_DIR in .env at the project root.",
+                "hint": "Example: BACKUPS_DIR=backups"
+            }]
+        }), 400
+
+    backups_dir = Path(backups_dir_raw)
+    if not backups_dir.is_absolute():
+        backups_dir = (root / backups_dir).resolve()
+
+    db_uri = current_app.config.get("SQLALCHEMY_DATABASE_URI", "") or ""
+    if not db_uri.lower().startswith("sqlite:"):
+        return jsonify({
+            "errors": [{
+                "status": 400,
+                "title": "Unsupported database engine",
+                "detail": "Only SQLite is supported for backups in this version."
+            }]
+        }), 400
+
+    try:
+        result = perform_sqlite_backup(backups_dir, db_uri)
+        return jsonify({"data": result})
+    except BackupError as e:
+        return jsonify({
+            "errors": [{"status": 400, "title": "Backup error", "detail": str(e)}]
+        }), 400
+    except Exception as e:
+        current_app.logger.exception("[backup] unexpected failure")
+        return jsonify({
+            "errors": [{
+                "status": 500,
+                "title": "Unexpected error",
+                "detail": str(e) if current_app.config.get("DEBUG") else ""
+            }]
+        }), 500

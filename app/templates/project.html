@@ -61,6 +61,7 @@
             <button id="btnFit" class="px-3 py-1 bg-slate-600 text-white rounded">Fit</button>
             
             <button id="btnScreenshot" class="px-3 py-1 bg-slate-700 text-white rounded">Screenshot</button>
+            <button id="btnBackupDB" class="px-3 py-1 bg-slate-700 text-white rounded hidden" title="Backup database" aria-label="Backup database">Backup DB</button>
             <button id="btnExportJSON" class="px-3 py-1 bg-slate-700 text-white rounded" title="Export project as JSON" aria-label="Export project as JSON">Export JSON</button>
             <button id="btnImportJSON" class="px-3 py-1 bg-slate-700 text-white rounded" title="Import project from JSON" aria-label="Import project from JSON">Import JSON</button>
             <input id="importInput" type="file" accept="application/json" class="hidden" />
@@ -330,6 +331,7 @@
                 <button id="btnCollapsePanel" class="px-2 py-1 text-xs rounded bg-fuchsia-600 text-white" title="Collapse group" aria-label="Collapse group">Collapse</button>
                 <button id="btnExpandPanel" class="px-2 py-1 text-xs rounded bg-fuchsia-500 text-white" title="Expand group" aria-label="Expand group">Expand</button>
                 <button id="btnScreenshotPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Screenshot" aria-label="Screenshot">Screenshot</button>
+                <button id="btnBackupDBPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Backup database" aria-label="Backup database">Backup DB</button>
                 <button id="btnExportJSONPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Export project as JSON" aria-label="Export project as JSON">Export JSON</button>
                 <button id="btnImportJSONPanel" class="px-2 py-1 text-xs rounded bg-slate-700 text-white" title="Import project from JSON" aria-label="Import project from JSON">Import JSON</button>
               </div>
@@ -493,6 +495,28 @@
           cont.appendChild(el);
           setTimeout(()=>{ try { el.style.transition = 'opacity 200ms'; el.style.opacity = '0'; setTimeout(()=>{ el.remove(); }, 220); } catch {} }, 2200);
         } catch {}
+      }
+
+      async function performBackupDb(){
+        try {
+          const resp = await fetch('/api/v1/settings/backup-db', { method: 'POST' });
+          if (!resp.ok){
+            let detail = '';
+            try { const e = await resp.json(); detail = (e && e.errors && e.errors[0] && (e.errors[0].detail || e.errors[0].title)) || ''; } catch {}
+            const msg = detail || `Backup failed (${resp.status})`;
+            try { showToast(msg, 'error'); } catch { alert(msg); }
+            return;
+          }
+          const data = await resp.json();
+          const p = data && data.data && data.data.path ? String(data.data.path) : '';
+          const size = data && data.data && data.data.size_bytes ? Number(data.data.size_bytes) : 0;
+          const short = p ? (p.length > 80 ? '…'+p.slice(-78) : p) : '';
+          const msg = short ? `Backup created: ${short} (${size} B)` : 'Backup created';
+          try { showToast(msg, 'success'); } catch { alert(msg); }
+        } catch (e){
+          const msg = (e && e.message) ? e.message : 'Backup error';
+          try { showToast(msg, 'error'); } catch { alert(msg); }
+        }
       }
 
       // Preferences helpers
@@ -3008,6 +3032,12 @@
           a.href = png; a.download = `graph-${projectId}.png`; a.click();
         });
 
+        // Backup header button
+        (function wireBackupHeader(){
+          const b = document.getElementById('btnBackupDB');
+          if (b && b.dataset.wired !== '1'){ b.dataset.wired='1'; b.addEventListener('click', performBackupDb); }
+        })();
+
         // Onboarding overlay
         const help = document.getElementById('btnHelp');
         help.addEventListener('click', () => {
@@ -3134,6 +3164,7 @@
               { headerId: 'btnCollapse', panelId: 'btnCollapsePanel', storageKey: 'actions.header.show.btnCollapse', defaultShow: true },
               { headerId: 'btnExpand', panelId: 'btnExpandPanel', storageKey: 'actions.header.show.btnExpand', defaultShow: true },
               { headerId: 'btnScreenshot', panelId: 'btnScreenshotPanel', storageKey: 'actions.header.show.btnScreenshot', defaultShow: true },
+              { headerId: 'btnBackupDB', panelId: 'btnBackupDBPanel', storageKey: 'actions.header.show.btnBackupDB', defaultShow: false },
               { headerId: 'btnExportJSON', panelId: 'btnExportJSONPanel', storageKey: 'actions.header.show.btnExportJSON', defaultShow: true },
               { headerId: 'btnImportJSON', panelId: 'btnImportJSONPanel', storageKey: 'actions.header.show.btnImportJSON', defaultShow: true },
             ];
@@ -3198,6 +3229,7 @@
             const collapseP = document.getElementById('btnCollapsePanel'); if (collapseP && collapseP.dataset.wired !== '1') { collapseP.dataset.wired='1'; collapseP.addEventListener('click', ()=> { const b=document.getElementById('btnCollapse'); if (b) b.click(); }); }
             const expandP = document.getElementById('btnExpandPanel'); if (expandP && expandP.dataset.wired !== '1') { expandP.dataset.wired='1'; expandP.addEventListener('click', ()=> { const b=document.getElementById('btnExpand'); if (b) b.click(); }); }
             const shotP = document.getElementById('btnScreenshotPanel'); if (shotP && shotP.dataset.wired !== '1') { shotP.dataset.wired='1'; shotP.addEventListener('click', ()=> { const b=document.getElementById('btnScreenshot'); if (b) b.click(); }); }
+            const bkpP = document.getElementById('btnBackupDBPanel'); if (bkpP && bkpP.dataset.wired !== '1') { bkpP.dataset.wired='1'; bkpP.addEventListener('click', ()=> { const b=document.getElementById('btnBackupDB'); if (b) b.click(); }); }
             const expP = document.getElementById('btnExportJSONPanel'); if (expP && expP.dataset.wired !== '1') { expP.dataset.wired='1'; expP.addEventListener('click', ()=> { const b=document.getElementById('btnExportJSON'); if (b) b.click(); }); }
             const impP = document.getElementById('btnImportJSONPanel'); if (impP && impP.dataset.wired !== '1') { impP.dataset.wired='1'; impP.addEventListener('click', ()=> { const b=document.getElementById('btnImportJSON'); if (b) b.click(); }); }
           } catch {}
