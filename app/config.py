@@ -62,6 +62,8 @@ class BaseConfig:
                     "image/svg+xml",
                     # docs
                     "application/pdf",
+                    # office docs
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                     "text/plain",
                     "text/markdown",
                 ]
