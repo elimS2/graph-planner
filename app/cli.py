@@ -70,6 +70,21 @@ def register_cli(app: Flask) -> None:
             if "password_hash" not in cols:
                 conn.execute(text("ALTER TABLE user ADD COLUMN password_hash TEXT"))
                 click.echo("Added user.password_hash")
+            # Ensure google_sub exists on user
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user)"))]
+            if "google_sub" not in cols:
+                conn.execute(text("ALTER TABLE user ADD COLUMN google_sub TEXT"))
+                try:
+                    # Unique index (nullable) to mimic unique constraint
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_user_google_sub ON user(google_sub) WHERE google_sub IS NOT NULL"))
+                except Exception:
+                    pass
+                click.echo("Added user.google_sub (+ unique index)")
+            # Ensure avatar_url exists on user
+            cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user)"))]
+            if "avatar_url" not in cols:
+                conn.execute(text("ALTER TABLE user ADD COLUMN avatar_url TEXT"))
+                click.echo("Added user.avatar_url")
             # Ensure updated_at on user
             cols = [row[1] for row in conn.execute(text("PRAGMA table_info(user)"))]
             if "updated_at" not in cols:
