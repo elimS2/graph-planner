@@ -267,8 +267,9 @@
                         <input id="filePickerComment" type="file" class="hidden" multiple />
                       </span>
                     </div>
-                    <div id="commentEditorArea" class="h-24"></div>
+                    <div id="commentEditorArea" style="height: var(--commentEditorHeight, 192px);"></div>
                   </div>
+                  <div id="commentEditorResizer" role="separator" aria-orientation="horizontal" tabindex="0" class="h-2 cursor-row-resize bg-slate-200 rounded"></div>
                   <textarea name="body" class="w-full border rounded p-2 hidden" rows="3" placeholder="Write a comment"></textarea>
                 </div>
                 <input type="hidden" name="user_id" value="system-user" />
@@ -3178,6 +3179,83 @@
             }
           }
         })();
+        // Comment Editor Height Resizer (editor-only)
+        (function(){
+          window.setupCommentEditorResizer = function setupCommentEditorResizer(){
+            const body = document.getElementById('taskCommentsBody');
+            const area = document.getElementById('commentEditorArea');
+            const handle = document.getElementById('commentEditorResizer');
+            if (!body || !area || !handle) return;
+            if (handle.dataset.wired === '1') return;
+            handle.dataset.wired = '1';
+
+            const STORAGE_KEY = 'sidebar.task.comments.editor.heightPx';
+            const DEFAULT_PX = 192;
+            const MIN_PX = 96;
+            const MAX_PX = 480;
+
+            function loadPx(){
+              try { const v = parseInt(localStorage.getItem(STORAGE_KEY)||String(DEFAULT_PX), 10); return isFinite(v) ? v : DEFAULT_PX; } catch { return DEFAULT_PX; }
+            }
+            function savePx(px){
+              try { localStorage.setItem(STORAGE_KEY, String(px)); } catch {}
+            }
+            function applyPx(px){
+              const clamped = Math.max(MIN_PX, Math.min(MAX_PX, Math.floor(px)));
+              body.style.setProperty('--commentEditorHeight', clamped + 'px');
+              return clamped;
+            }
+            // Initial
+            applyPx(loadPx());
+
+            let dragging = false, startY = 0, startPx = 0, raf = null;
+            function begin(e){
+              if (body.classList.contains('hidden')) return;
+              dragging = true;
+              startY = e.clientY;
+              startPx = area.getBoundingClientRect().height;
+              try { handle.setPointerCapture(e.pointerId); } catch {}
+              document.body.classList.add('select-none'); document.body.style.cursor = 'row-resize';
+              e.preventDefault();
+            }
+            function move(e){
+              if (!dragging) return;
+              const delta = e.clientY - startY;
+              const next = startPx + delta;
+              if (raf) cancelAnimationFrame(raf);
+              raf = requestAnimationFrame(() => applyPx(next));
+            }
+            function end(e){
+              if (!dragging) return;
+              dragging = false;
+              document.body.classList.remove('select-none'); document.body.style.cursor = '';
+              const curH = area.getBoundingClientRect().height;
+              const applied = applyPx(curH);
+              savePx(applied);
+              try { handle.releasePointerCapture(e.pointerId); } catch {}
+            }
+
+            handle.addEventListener('pointerdown', begin);
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', end);
+            window.addEventListener('pointercancel', end);
+
+            handle.addEventListener('keydown', (e) => {
+              if (body.classList.contains('hidden')) return;
+              const key = (e.key||'').toLowerCase();
+              const STEP = 8, BIG = 32;
+              let cur = area.getBoundingClientRect().height;
+              if (key === 'arrowup'){ e.preventDefault(); cur += STEP; }
+              else if (key === 'arrowdown'){ e.preventDefault(); cur -= STEP; }
+              else if (key === 'pageup'){ e.preventDefault(); cur += BIG; }
+              else if (key === 'pagedown'){ e.preventDefault(); cur -= BIG; }
+              else if (key === 'home'){ e.preventDefault(); cur = DEFAULT_PX; }
+              else if (key === 'end'){ e.preventDefault(); cur = MAX_PX; }
+              else return;
+              const applied = applyPx(cur); savePx(applied);
+            });
+          }
+        })();
         function resetTabStyles(){
           tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
           if (tabActions) tabActions.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
@@ -3209,6 +3287,8 @@
           wireReorderablePanel(taskPanel, ORDER_KEYS.task, DEFAULT_TASK_IDS);
           // Setup comments height resizer (idempotent)
           setupTaskCommentsResizer();
+          // Setup editor height resizer (idempotent)
+          setupCommentEditorResizer();
         }
         function showActions(){
           hideAllPanels();
