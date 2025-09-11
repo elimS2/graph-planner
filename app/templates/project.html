@@ -939,6 +939,10 @@
             /* Cytoscape doesn't support :hover selector here; remove to avoid errors */
             /* { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } }, */
             { selector: 'edge:selected', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'width': 2.5, 'arrow-scale': 1.5 } },
+            { selector: 'node:selected', style: { 'border-width': 6, 'border-color': '#0ea5e9', 'border-opacity': 1, 'text-outline-color': '#ffffff', 'text-outline-width': 2, 'overlay-color': '#0ea5e9', 'overlay-opacity': 0.08 } },
+            { selector: 'node[?is_hidden]:selected', style: { 'opacity': 0.85 } },
+            { selector: 'node.dim', style: { 'opacity': 0.55 } },
+            { selector: 'edge.dim', style: { 'opacity': 0.3 } },
             { selector: 'node[status = "planned"]', style: { 'background-color': '#38bdf8' } },
             { selector: 'node[status = "done"]', style: { 'background-color': '#22c55e' } },
             { selector: 'node[status = "in-progress"]', style: { 'background-color': '#f59e0b' } },
@@ -1324,7 +1328,15 @@
               return;
             }
           } catch {}
+          try { cy.elements().unselect(); } catch {}
+          try { evt.target.select(); } catch {}
+          try {
+            cy.elements().removeClass('dim');
+            const neighborhood = evt.target.closedNeighborhood().union(evt.target);
+            cy.elements().not(neighborhood).addClass('dim');
+          } catch {}
           selectedNodeId = evt.target.data('id');
+          try { sessionStorage.setItem('lastSelectedNodeId', String(selectedNodeId||'')); } catch {}
           try { oversizedOpenFiredForNodeIds.delete(String(selectedNodeId)); } catch {}
           try { checkAndAutoOpenLinkOnOversized(); } catch {}
           try {
@@ -1394,6 +1406,14 @@
           const stGrp = document.getElementById('statusRadios');
           if (stGrp) setRadioGroupValue(stGrp, String(evt.target.data('status') || 'planned'));
           await refreshLists(selectedNodeId);
+          // Ensure selected is within viewport with padding
+          try {
+            const bb = evt.target.renderedBoundingBox();
+            const pad = 40;
+            const fits = (bb.x1 >= pad && bb.y1 >= pad && bb.x2 <= (cy.width()-pad) && bb.y2 <= (cy.height()-pad));
+            if (!fits) { cy.animate({ center: { eles: evt.target } }, { duration: 200 }); }
+          } catch {}
+          try { applyLOD(); } catch {}
         });
         cy.on('tap', 'edge', (evt) => {
           selectedEdgeId = evt.target.data('id');
@@ -1401,6 +1421,22 @@
           selEl.textContent = '—';
           const delBtn = document.getElementById('btnDeleteNodePanel');
           if (delBtn) delBtn.classList.add('hidden');
+          try { cy.elements().removeClass('dim'); } catch {}
+          try { cy.elements().unselect(); evt.target.select(); } catch {}
+          try { applyLOD(); } catch {}
+        });
+
+        // Background tap clears selection and focus-dim mode
+        cy.on('tap', (evt) => {
+          if (evt.target === cy) {
+            try { cy.elements().unselect(); cy.elements().removeClass('dim'); } catch {}
+            selectedNodeId = null;
+            selectedEdgeId = null;
+            selEl.textContent = '—';
+            const delBtn = document.getElementById('btnDeleteNodePanel');
+            if (delBtn) delBtn.classList.add('hidden');
+            try { applyLOD(); } catch {}
+          }
         });
 
         async function postJSON(url, data) {
@@ -1955,18 +1991,30 @@
           const baseNodes = allNodes.filter(n => !Boolean(n.data('origParent')));
           const total = baseNodes.length;
 
-          // Reset opacities for base nodes before applying rules
+          // Reset opacities and dim classes before applying rules
+          try { cy.elements().removeClass('dim'); } catch {}
           allNodes.forEach(n => { if (!n.data('origParent')) { n.style('opacity', 1); } });
 
           // Respect user preference: when disabled, always show everything
           if (!getLodEnabled()) {
             baseNodes.forEach(n => { n.style('display', 'element'); n.style('opacity', 1); });
+            // If a node is selected, dim non-neighborhood for focus
+            const sn = selectedNodeId ? cy.getElementById(String(selectedNodeId)) : null;
+            if (sn && sn.nonempty()) {
+              const neigh = sn.closedNeighborhood().union(sn);
+              cy.elements().not(neigh).addClass('dim');
+            }
             return;
           }
 
           // Disable LOD for small graphs or near/full zoom
           if (total <= 150 || z >= 0.8) {
             baseNodes.forEach(n => { n.style('display', 'element'); n.style('opacity', 1); });
+            const sn = selectedNodeId ? cy.getElementById(String(selectedNodeId)) : null;
+            if (sn && sn.nonempty()) {
+              const neigh = sn.closedNeighborhood().union(sn);
+              cy.elements().not(neigh).addClass('dim');
+            }
             return;
           }
 
@@ -1993,6 +2041,11 @@
               n.style('display', 'element');
               n.style('opacity', isVisible ? 1 : 0.25);
             });
+            const sn = selectedNodeId ? cy.getElementById(String(selectedNodeId)) : null;
+            if (sn && sn.nonempty()) {
+              const neigh = sn.closedNeighborhood().union(sn);
+              cy.elements().not(neigh).addClass('dim');
+            }
             return;
           }
 
@@ -2002,6 +2055,15 @@
             n.style('opacity', 1);
             n.style('display', isVisible ? 'element' : 'none');
           });
+          // Keep selected node visible even if not in visibleSet
+          if (selectedNodeId) {
+            const sn = cy.getElementById(String(selectedNodeId));
+            if (sn && sn.nonempty()) { sn.style('display', 'element'); }
+            if (sn && sn.nonempty()) {
+              const neigh = sn.closedNeighborhood().union(sn);
+              cy.elements().not(neigh).addClass('dim');
+            }
+          }
 
           // Safety: ensure at least minVisible are shown (avoid single-selected trap)
           const currentlyVisible = baseNodes.filter(n => n.style('display') !== 'none').length;
@@ -2020,6 +2082,22 @@
         const WHEEL_WINDOW_MS = 400;
         let lastWheelAt = 0;
         try { checkAndAutoOpenLinkOnOversized(); } catch {}
+
+        // Restore last selected node if exists
+        try {
+          const last = sessionStorage.getItem('lastSelectedNodeId');
+          if (last) {
+            const el = cy.getElementById(String(last));
+            if (el && el.nonempty()) {
+              cy.elements().unselect(); el.select(); selectedNodeId = String(last);
+              const neighborhood = el.closedNeighborhood().union(el);
+              cy.elements().removeClass('dim');
+              cy.elements().not(neighborhood).addClass('dim');
+              selEl.textContent = selectedNodeId;
+              try { applyLOD(); } catch {}
+            } else { sessionStorage.removeItem('lastSelectedNodeId'); }
+          }
+        } catch {}
 
         // Pick a focus node when none is selected: prioritize node under viewport center with a link
         function findFocusedNodeForZoom(){
