@@ -1336,6 +1336,7 @@
             cy.elements().not(neighborhood).addClass('dim');
           } catch {}
           selectedNodeId = evt.target.data('id');
+          try { if (window.sidebarAutoHide) window.sidebarAutoHide.cancel(); } catch {}
           try { sessionStorage.setItem('lastSelectedNodeId', String(selectedNodeId||'')); } catch {}
           try { oversizedOpenFiredForNodeIds.delete(String(selectedNodeId)); } catch {}
           try { checkAndAutoOpenLinkOnOversized(); } catch {}
@@ -1424,6 +1425,7 @@
           try { cy.elements().removeClass('dim'); } catch {}
           try { cy.elements().unselect(); evt.target.select(); } catch {}
           try { applyLOD(); } catch {}
+          try { if (window.sidebarAutoHide) window.sidebarAutoHide.schedule(); } catch {}
         });
 
         // Background tap clears selection and focus-dim mode
@@ -2827,6 +2829,7 @@
           let autoHideTimer = null;
           let suspendAutoHide = false;
           let isPointerOverSidebarArea = false;
+          function isSelectionLockActive(){ try { return !!selectedNodeId; } catch { return false; } }
           function getAutoHideEnabled(){ try { return localStorage.getItem('sidebar.autoHide.enabled') === '1'; } catch { return false; } }
           function getAutoHideDelay(){ try { return Math.max(500, parseInt(localStorage.getItem('sidebar.autoHide.delayMs')||'3000',10)); } catch { return 3000; } }
           function getEdgePx(){ try { return Math.max(1, parseInt(localStorage.getItem('sidebar.autoHide.edgePx')||'6',10)); } catch { return 6; } }
@@ -2836,6 +2839,7 @@
             if (!getAutoHideEnabled()) return;
             if (suspendAutoHide) return;
             try { if (localStorage.getItem('sidebarHidden') === '1') return; } catch {}
+            if (isSelectionLockActive()) return;
             if (isPointerOverSidebarArea) return;
             // Do not schedule if focus is inside sidebar/resizer (e.g., typing in inputs)
             try {
@@ -2852,6 +2856,7 @@
                 const activeNow = document.activeElement;
                 if (activeNow && (sidebar.contains(activeNow) || (resizer && resizer.contains && resizer.contains(activeNow)))) return;
               } catch {}
+              if (isSelectionLockActive()) return;
               setPrevBeforeAutoHide(curW);
               localStorage.setItem('sidebarHidden','1');
               applySidebarVisibility();
