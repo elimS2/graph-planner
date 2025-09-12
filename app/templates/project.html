@@ -1813,6 +1813,7 @@
         // Unified connect mode: via button or hold 'c'. ESC / click background cancels. Prevent dup/invalid.
         (function connectMode(){
           let active = false; let sourceId = null; let timeoutId = null;
+          try { window.isConnectModeActive = false; window.isConnectKeyHeld = false; } catch {}
           const srcClass = 'connect-source';
           // hint overlay
           const hint = document.createElement('div');
@@ -1821,7 +1822,9 @@
           hint.innerHTML = '<span class="inline-block px-3 py-1 bg-black/70 text-white rounded">Connect mode: click source, then target (ESC to cancel, hold C for quick connect)</span>';
           document.body.appendChild(hint);
           function setActive(on){
-            active = on; if (!on) { sourceId = null; cy.nodes().removeClass(srcClass); if (timeoutId) { clearTimeout(timeoutId); timeoutId=null; } cy.container().style.cursor=''; hint.style.display='none'; }
+            active = on;
+            try { window.isConnectModeActive = !!on; } catch {}
+            if (!on) { sourceId = null; cy.nodes().removeClass(srcClass); if (timeoutId) { clearTimeout(timeoutId); timeoutId=null; } cy.container().style.cursor=''; hint.style.display='none'; }
             else { cy.container().style.cursor='crosshair'; hint.style.display=''; timeoutId = setTimeout(()=>setActive(false), 10000); }
           }
           function cancel(){ setActive(false); }
@@ -1845,8 +1848,8 @@
           cy.on('tap', 'node', pickHandler);
           cy.on('tap', (evt) => { if (active && evt.target === cy) cancel(); });
           const isConnectKey = (k) => { const v=(k||'').toLowerCase(); return v==='c' || v==='с'; };
-          document.addEventListener('keydown', (e)=>{ if (isConnectKey(e.key) && !active){ setActive(true); }});
-          document.addEventListener('keyup', (e)=>{ if (isConnectKey(e.key)){ cancel(); }});
+          document.addEventListener('keydown', (e)=>{ if (isConnectKey(e.key)){ try { window.isConnectKeyHeld = true; } catch {} if (!active){ setActive(true); }}});
+          document.addEventListener('keyup', (e)=>{ if (isConnectKey(e.key)){ try { window.isConnectKeyHeld = false; } catch {} cancel(); }});
           document.getElementById('btnAddEdge').addEventListener('click', ()=>{ setActive(true); });
           document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && active){ e.preventDefault(); cancel(); }});
         })();
@@ -2310,6 +2313,8 @@
           try { window.__wiredRevealOnTap = '1'; } catch {}
           cy.on('tap','node', () => {
             try {
+              // Do not reveal while connect mode is active or C is held
+              try { if (window.isConnectModeActive || window.isConnectKeyHeld) return; } catch {}
               if (localStorage.getItem('sidebarHidden') === '1'){
                 const sidebar = document.getElementById('sidebar');
                 const resizer = document.getElementById('resizer');
@@ -2970,6 +2975,8 @@
             const hidden = localStorage.getItem('sidebarHidden') === '1';
             if (!hidden) return; // only reveal when hidden
             const vw = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth || 0;
+            // Suppress reveal while connect mode is active or C is held
+            try { if (window.isConnectModeActive || window.isConnectKeyHeld) return; } catch {}
             if ((vw - e.clientX) <= getEdgePx()){
               if (edgeDebounce) return;
               edgeDebounce = setTimeout(()=>{ edgeDebounce = null; restoreFromAutoHide(); }, 80);
