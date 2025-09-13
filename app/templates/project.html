@@ -166,7 +166,7 @@
               </div>
               <div>
                 <label class="block text-sm font-semibold text-slate-600">Descendants (via edges)</label>
-                <div id="descCount" class="text-sm text-slate-800">0</div>
+                <div id="descCountMeta" class="text-sm text-slate-800">0</div>
               </div>
             </div>
           </div>
@@ -211,7 +211,7 @@
               </label>
               <div>
                 <label class="block text-sm font-semibold text-slate-600">Descendants (via edges)</label>
-                <div id="descCount" class="text-sm text-slate-800">0</div>
+                <div id="descCountVis" class="text-sm text-slate-800">0</div>
               </div>
             </div>
           </div>
@@ -1311,6 +1311,31 @@
           } catch {}
         }
 
+        // --- Descendants helpers ---
+        function updateDescendantsCount(count){
+          try { const a = document.getElementById('descCountMeta'); if (a) a.textContent = String(count); } catch {}
+          try { const b = document.getElementById('descCountVis'); if (b) b.textContent = String(count); } catch {}
+        }
+        function computeDescendantsFromCy(startNodeId){
+          try {
+            if (!startNodeId) return 0;
+            const start = cy.getElementById(String(startNodeId));
+            if (!start || !start.nonempty()) return 0;
+            const visited = new Set([start.id()]);
+            const queue = [start];
+            let count = 0;
+            while (queue.length) {
+              const cur = queue.shift();
+              const out = cur.outgoers('edge');
+              out.targets().forEach(t => {
+                const tid = t.id();
+                if (!visited.has(tid)) { visited.add(tid); queue.push(t); count++; }
+              });
+            }
+            return count;
+          } catch { return 0; }
+        }
+
         cy.on('tap', 'node', async (evt) => {
           initQuillOnce();
           // Ctrl+click opens link_url in new tab (if present)
@@ -1386,22 +1411,11 @@
               chk.checked = !!nodePref;
             }
           } catch {}
-          // compute descendants via outgoing edges (reachability)
-          const start = cy.getElementById(selectedNodeId);
-          let count = 0;
-          if (start && start.nonempty()) {
-            const visited = new Set([start.id()]);
-            const queue = [start];
-            while (queue.length) {
-              const cur = queue.shift();
-              const out = cur.outgoers('edge');
-              out.targets().forEach(t => {
-                if (!visited.has(t.id())) { visited.add(t.id()); queue.push(t); count++; }
-              });
-            }
-          }
-          const dc = document.getElementById('descCount');
-          if (dc) dc.textContent = String(count);
+          // compute and reflect descendants via helper
+          try {
+            const count = computeDescendantsFromCy(selectedNodeId);
+            updateDescendantsCount(count);
+          } catch {}
           selectedEdgeId = null;
           // set status select to node status
           const stGrp = document.getElementById('statusRadios');
@@ -1420,6 +1434,7 @@
           selectedEdgeId = evt.target.data('id');
           selectedNodeId = null;
           selEl.textContent = '—';
+          try { updateDescendantsCount(0); } catch {}
           const delBtn = document.getElementById('btnDeleteNodePanel');
           if (delBtn) delBtn.classList.add('hidden');
           try { cy.elements().removeClass('dim'); } catch {}
@@ -1435,6 +1450,7 @@
             selectedNodeId = null;
             selectedEdgeId = null;
             selEl.textContent = '—';
+            try { updateDescendantsCount(0); } catch {}
             const delBtn = document.getElementById('btnDeleteNodePanel');
             if (delBtn) delBtn.classList.add('hidden');
             try { applyLOD(); } catch {}
@@ -1491,7 +1507,26 @@
           function countDesc(start){ const vis = new Set([start]); const q=[start]; let c=0; while(q.length){ const cur=q.shift(); (adj.get(cur)||[]).forEach(t=>{ if(!vis.has(t)){vis.add(t); q.push(t); c++; } }); } return c; }
           nodes.forEach(n => n.data('descendants', countDesc(n.id())));
           recomputePriorityPaths();
+          // update sidebar descendants counter if selection exists
+          try {
+            if (selectedNodeId) {
+              const cnt = computeDescendantsFromCy(String(selectedNodeId));
+              updateDescendantsCount(cnt);
+            }
+          } catch {}
         }
+
+        // Reflect descendants changes on edge removal as well
+        cy.on('remove', 'edge', () => {
+          try {
+            if (selectedNodeId) {
+              const cnt = computeDescendantsFromCy(String(selectedNodeId));
+              updateDescendantsCount(cnt);
+            } else {
+              updateDescendantsCount(0);
+            }
+          } catch {}
+        });
 
         document.getElementById('commentForm').addEventListener('submit', async (e) => {
           e.preventDefault();
