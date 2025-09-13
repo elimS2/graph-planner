@@ -25,6 +25,11 @@
       #commentsList .comments-prose code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.875em; background: #f1f5f9; padding: 0 0.2em; border-radius: 3px; }
       #commentsList .comments-prose pre { background: #f8fafc; padding: 0.5rem; border-radius: 4px; overflow: auto; }
       #commentsList .comments-prose a { color: #2563eb; text-decoration: underline; }
+      /* Compact thumbnails for inline images in comments */
+      #commentsList .comments-prose img { max-width: 100%; height: auto; max-height: 240px; object-fit: contain; display: block; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; cursor: zoom-in; }
+      /* Skeleton placeholder for images (when loading="lazy") */
+      #commentsList .comments-prose img[loading="lazy"] { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%); background-size: 400% 100%; animation: shimmer 1.2s ease-in-out infinite; }
+      @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
 
       /* Sidebar collapsed polish: remove padding/shadow when nearly zero width */
       #sidebar.collapsed { padding: 0 !important; box-shadow: none !important; }
@@ -601,6 +606,135 @@
     </div>
 
     <script>
+      // Fullscreen image viewer (hidden by default)
+      (function injectImageViewer(){
+        try {
+          if (document.getElementById('imgViewerOverlay')) return;
+          const overlay = document.createElement('div');
+          overlay.id = 'imgViewerOverlay';
+          overlay.className = 'fixed inset-0 z-50 hidden';
+          overlay.setAttribute('role','dialog');
+          overlay.setAttribute('aria-modal','true');
+          overlay.innerHTML = `
+            <div id="imgViewerBackdrop" class="absolute inset-0 bg-black/80"></div>
+            <div class="relative w-full h-full flex items-center justify-center p-4">
+              <div class="absolute top-4 left-4 text-sm text-white/90" id="imgViewerCounter" aria-live="polite"></div>
+              <button id="imgViewerClose" class="absolute top-4 right-4 px-3 py-1 text-sm rounded bg-slate-200 text-slate-900" aria-label="Close">Close</button>
+              <img id="imgViewerImg" alt="image" class="max-w-[95vw] max-h-[90vh] rounded shadow-lg" />
+            </div>`;
+          document.body.appendChild(overlay);
+          function close(){ overlay.classList.add('hidden'); document.body.style.overflow=''; }
+          overlay.addEventListener('click', (e)=>{
+            try {
+              const img = document.getElementById('imgViewerImg');
+              const t = e.target;
+              // If click is on the image itself, do nothing; otherwise close (backdrop or empty area)
+              if (img && (t === img || (typeof img.contains === 'function' && img.contains(t)))) return;
+              close();
+            } catch { close(); }
+          });
+          let gallery = { urls: [], index: 0 };
+          // Zoom/Pan state
+          const zoomState = { scale: 1, min: 1, max: 6, x: 0, y: 0, dragging: false, lastX: 0, lastY: 0 };
+          function applyTransform(){
+            try {
+              const img = document.getElementById('imgViewerImg');
+              img.style.transform = `translate(${zoomState.x}px, ${zoomState.y}px) scale(${zoomState.scale})`;
+              img.style.transformOrigin = 'center center';
+              img.style.cursor = (zoomState.scale > 1 ? (zoomState.dragging ? 'grabbing' : 'grab') : 'zoom-in');
+            } catch {}
+          }
+          function resetTransform(){ zoomState.scale = 1; zoomState.x = 0; zoomState.y = 0; zoomState.dragging = false; applyTransform(); }
+          function setImg(src){ const img = document.getElementById('imgViewerImg'); img.src = src; resetTransform(); updateCounter(); }
+          function updateCounter(){
+            try {
+              const c = document.getElementById('imgViewerCounter');
+              if (!c) return;
+              const total = gallery.urls.length || 1;
+              const current = (gallery.index + 1);
+              c.textContent = `${current}/${total}`;
+            } catch {}
+          }
+          function collectAllImages(){
+            try {
+              const list = document.getElementById('commentsList');
+              if (!list) return [];
+              return Array.from(list.querySelectorAll('.comments-prose img')).map(i=>i.src);
+            } catch { return []; }
+          }
+          function step(delta){
+            if (!gallery.urls.length) return;
+            gallery.index = (gallery.index + delta + gallery.urls.length) % gallery.urls.length;
+            setImg(gallery.urls[gallery.index]);
+          }
+          document.addEventListener('keydown', (e)=>{
+            if (!overlay.classList.contains('hidden')){
+              if (e.key === 'Escape') close();
+              if (e.key === '+' || e.key === '='){ zoomBy(1.1); }
+              if (e.key === '-') { zoomBy(1/1.1); }
+              if (e.key === '0') { resetTransform(); }
+              if (e.key === 'ArrowLeft') step(-1);
+              if (e.key === 'ArrowRight') step(1);
+            }
+          });
+          function zoomBy(factor){
+            const prev = zoomState.scale;
+            let next = Math.max(zoomState.min, Math.min(zoomState.max, prev * factor));
+            zoomState.scale = next;
+            applyTransform();
+          }
+          // Mouse/touch handlers for zoom/pan
+          try {
+            const imgEl = document.getElementById('imgViewerImg');
+            imgEl.classList.add('select-none');
+            imgEl.setAttribute('draggable','false');
+            imgEl.addEventListener('wheel', (e)=>{ e.preventDefault(); const f = (e.deltaY < 0) ? 1.1 : (1/1.1); zoomBy(f); }, { passive: false });
+            imgEl.addEventListener('dblclick', (e)=>{ e.preventDefault(); if (zoomState.scale === 1) { zoomState.scale = 2.5; } else { zoomState.scale = 1; zoomState.x = 0; zoomState.y = 0; } applyTransform(); });
+            imgEl.addEventListener('mousedown', (e)=>{ if (zoomState.scale <= 1) return; zoomState.dragging = true; zoomState.lastX = e.clientX; zoomState.lastY = e.clientY; applyTransform(); });
+            window.addEventListener('mousemove', (e)=>{ if (!zoomState.dragging) return; const dx = e.clientX - zoomState.lastX; const dy = e.clientY - zoomState.lastY; zoomState.lastX = e.clientX; zoomState.lastY = e.clientY; zoomState.x += dx; zoomState.y += dy; applyTransform(); });
+            window.addEventListener('mouseup', ()=>{ if (zoomState.dragging) { zoomState.dragging = false; applyTransform(); } });
+            imgEl.addEventListener('mouseleave', ()=>{ if (zoomState.dragging) { zoomState.dragging = false; applyTransform(); } });
+            let touchPrevDist = null;
+            imgEl.addEventListener('touchstart', (e)=>{ if (e.touches.length===2){ touchPrevDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); } }, { passive: true });
+            imgEl.addEventListener('touchmove', (e)=>{ if (e.touches.length===2 && touchPrevDist){ e.preventDefault(); const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); const f = d / touchPrevDist; touchPrevDist = d; zoomBy(f); } }, { passive: false });
+            imgEl.addEventListener('touchend', ()=>{ touchPrevDist = null; }, { passive: true });
+            // Swipe gestures on overlay when not zoomed
+            let startX = null, startY = null, startT = 0;
+            const THRESHOLD_PX = 50; const MAX_DURATION_MS = 600;
+            overlay.addEventListener('touchstart', (e)=>{
+              try {
+                if (e.touches && e.touches.length===1 && !overlay.classList.contains('hidden') && zoomState.scale<=1){
+                  startX = e.touches[0].clientX; startY = e.touches[0].clientY; startT = Date.now();
+                } else { startX = null; }
+              } catch { startX = null; }
+            }, { passive: true });
+            overlay.addEventListener('touchend', (e)=>{
+              try {
+                if (startX==null) return;
+                const t = Date.now()-startT;
+                const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
+                if (!touch) return;
+                const dx = touch.clientX - startX; const dy = touch.clientY - startY;
+                if (t <= MAX_DURATION_MS && Math.abs(dx) >= THRESHOLD_PX && Math.abs(dx) > Math.abs(dy)){
+                  if (dx < 0) step(1); else step(-1);
+                }
+              } catch {}
+              finally { startX = null; }
+            }, { passive: true });
+          } catch {}
+          window.__openImageViewer = function(url){
+            try {
+              const all = collectAllImages();
+              gallery.urls = all && all.length ? all : [url];
+              const idx = gallery.urls.indexOf(url);
+              gallery.index = (idx >= 0) ? idx : 0;
+              setImg(gallery.urls[gallery.index]);
+              overlay.classList.remove('hidden'); document.body.style.overflow='hidden';
+              const btn = document.getElementById('imgViewerClose'); if (btn) btn.focus();
+            } catch {}
+          }
+        } catch {}
+      })();
       const projectId = "{{ project.id }}";
 
       function formatDate(iso) {
@@ -1347,6 +1481,25 @@
               body.innerHTML = x.body_html;
               // Ensure links are safe
               try { body.querySelectorAll('a').forEach(a => { a.setAttribute('rel', 'noopener noreferrer nofollow'); a.setAttribute('target', '_blank'); }); } catch {}
+              // Wire image viewer: make inline images open fullscreen
+              try {
+                const imgs = Array.from(body.querySelectorAll('img'));
+                imgs.forEach(img => {
+                  try { img.setAttribute('tabindex','0'); img.setAttribute('loading','lazy'); } catch {}
+                  // Prefer server thumbnails to reduce payload, keep full image for viewer
+                  try {
+                    const url = new URL(img.src, window.location.origin);
+                    const isApiFile = /\/api\/v1\/files\//.test(url.pathname);
+                    if (isApiFile) {
+                      url.searchParams.set('w','1200'); url.searchParams.set('h','1200'); // reasonable bounds
+                      img.src = url.toString();
+                    }
+                  } catch {}
+                  const handler = (e)=>{ try { if (window.__openImageViewer) { e.preventDefault(); window.__openImageViewer(img.src); } } catch {} };
+                  img.addEventListener('click', handler);
+                  img.addEventListener('keydown', (e)=>{ if (e.key==='Enter' || e.key===' ') handler(e); });
+                });
+              } catch {}
             } else {
               body.textContent = (x.body_translated || x.body);
             }

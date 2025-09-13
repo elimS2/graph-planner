@@ -28,6 +28,10 @@ from marshmallow import ValidationError
 from ...models import BackgroundJob
 from urllib.parse import urlparse
 from ...services.uploads import save_filestorage, _resolve_files_root
+try:
+    from PIL import Image  # type: ignore
+except Exception:  # pragma: no cover
+    Image = None  # type: ignore
 
 
 bp = Blueprint("graph", __name__, url_prefix="/api/v1")
@@ -565,8 +569,60 @@ def serve_attachment(id: str, name: str):
     root = _resolve_files_root()
     abs_path = (root / att.storage_path).resolve()
     try:
-        # Simple caching via ETag on checksum
-        etag = (att.checksum_sha256 or att.id)
+        # Simple caching via ETag on checksum (extend with resize params if any)
+        etag_base = (att.checksum_sha256 or att.id)
+        w_raw = request.args.get("w")
+        h_raw = request.args.get("h")
+        w = int(w_raw) if w_raw and w_raw.isdigit() else None
+        h = int(h_raw) if h_raw and h_raw.isdigit() else None
+        # Clamp to sane bounds
+        if w is not None:
+            w = max(16, min(4096, w))
+        if h is not None:
+            h = max(16, min(4096, h))
+        # If image and resize requested, serve a cached thumbnail or create one
+        is_image = (att.mime_type or "").lower().startswith("image/")
+        thumb_path = None
+        if is_image and (w or h) and Image is not None:
+            try:
+                thumbs_dir = (root / "thumbnails").resolve()
+                thumbs_dir.mkdir(parents=True, exist_ok=True)
+                # Choose output ext/format based on original
+                ext = "jpg" if (att.mime_type or "").lower() in {"image/jpeg", "image/jpg"} else ("png" if (att.mime_type or "").lower() == "image/png" else "webp")
+                out_name = f"{att.id}_w{w or 'x'}_h{h or 'x'}.{ext}"
+                thumb_path = thumbs_dir / out_name
+                if not thumb_path.exists():
+                    with Image.open(abs_path) as im:  # type: ignore[attr-defined]
+                        im_format = "JPEG" if ext == "jpg" else ("PNG" if ext == "png" else "WEBP")
+                        # Preserve aspect ratio within bounds
+                        max_w = w or 4096
+                        max_h = h or 4096
+                        im.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)  # type: ignore[attr-defined]
+                        # Convert alpha for JPEG
+                        if im_format == "JPEG" and im.mode in ("RGBA", "LA"):
+                            bg = Image.new("RGB", im.size, (255, 255, 255))  # type: ignore[attr-defined]
+                            bg.paste(im, mask=im.split()[-1])
+                            bg.save(thumb_path, im_format, quality=85)
+                        else:
+                            save_kwargs = {"quality": 85} if im_format in {"JPEG", "WEBP"} else {}
+                            im.save(thumb_path, im_format, **save_kwargs)
+                # Serve thumbnail
+                etag = f"{etag_base}_{w or 'x'}x{h or 'x'}"
+                inm = request.headers.get('If-None-Match')
+                if inm and etag and inm.strip('"') == etag:
+                    return ("", 304, {"ETag": f'"{etag}"', "Cache-Control": "public, max-age=86400"})
+                rv = send_file(thumb_path, mimetype=att.mime_type if ext in {"jpg", "png"} else "image/webp", as_attachment=False, download_name=(att.original_name or name))
+                try:
+                    rv.headers["ETag"] = f'"{etag}"'
+                    rv.headers["Cache-Control"] = "public, max-age=86400"
+                except Exception:
+                    pass
+                return rv
+            except Exception:
+                # Fallback to original if resize fails
+                pass
+        # Fall back to serving original
+        etag = etag_base
         inm = request.headers.get('If-None-Match')
         if inm and etag and inm.strip('"') == etag:
             return ("", 304, {"ETag": f'"{etag}"', "Cache-Control": "public, max-age=86400"})
