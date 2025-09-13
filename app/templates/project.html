@@ -386,6 +386,46 @@
               </div>
             </div>
 
+            <div id="sizeScalingBlock" class="rounded border p-3 bg-white space-y-2">
+              <button id="sizeScalingToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="sizeScalingBody">
+                <span>Node Size by Descendants</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="sizeScalingBody" class="space-y-2 text-sm">
+                <div class="grid grid-cols-2 gap-2">
+                  <label class="flex items-center gap-2 col-span-2"><span class="whitespace-nowrap">Method</span>
+                    <select id="sizeMethod" class="border rounded px-2 py-1 w-full">
+                      <option value="log">Logarithmic</option>
+                      <option value="linear">Linear</option>
+                      <option value="sqrt">Square-root</option>
+                      <option value="quantile">Quantile (buckets)</option>
+                    </select>
+                  </label>
+                  <p class="text-xs text-slate-500 col-span-2">Method defines how descendants are mapped to size. Logarithmic (default) preserves differences across wide ranges; Linear is proportional; Square-root balances area perception; Quantile splits values into buckets.</p>
+                  <label class="flex items-center gap-2 col-span-2"><span class="whitespace-nowrap">Reference</span>
+                    <select id="sizeReference" class="border rounded px-2 py-1 w-full">
+                      <option value="p95">p95</option>
+                      <option value="max">Max</option>
+                    </select>
+                  </label>
+                  <p class="text-xs text-slate-500 col-span-2">Reference sets the upper anchor R for normalization. p95 uses the 95th percentile so outliers do not stretch the scale; values above p95 clamp to Max px. Max uses the absolute maximum, which can compress mid-range when there are outliers.</p>
+                  <label class="flex items-center gap-2 col-span-2"><span class="whitespace-nowrap">Min px</span>
+                    <input id="sizeMinPx" type="number" min="12" max="160" step="1" class="border rounded px-2 py-1 w-28" />
+                  </label>
+                  <label class="flex items-center gap-2 col-span-2"><span class="whitespace-nowrap">Max px</span>
+                    <input id="sizeMaxPx" type="number" min="12" max="200" step="1" class="border rounded px-2 py-1 w-28" />
+                  </label>
+                  <label class="flex items-center gap-2"><span class="whitespace-nowrap">Quantile k</span>
+                    <input id="sizeQuantileK" type="number" min="3" max="9" step="1" class="border rounded px-2 py-1 w-24" />
+                  </label>
+                </div>
+                <div class="flex gap-2">
+                  <button id="btnSizeReset" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Reset to defaults</button>
+                </div>
+                <p class="text-xs text-slate-500">Changes apply immediately and persist locally.</p>
+              </div>
+            </div>
+
             <div id="scheduleBlock" class="rounded border p-3 bg-white space-y-2">
               <button id="scheduleToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="scheduleBody">
                 <span>Schedule</span>
@@ -653,7 +693,7 @@
       // Sidebar reorder helpers (top-level)
       const ORDER_KEYS = { task: 'sidebar.task.order', settings: 'sidebar.settings.order' };
       const DEFAULT_TASK_IDS = ['taskSelectionLinkBlock','taskMetadataBlock','taskStatusPriorityBlock','taskVisibilityBlock','taskCommentsBlock','taskHistoryBlock','taskTimeBlock','taskCostsBlock','taskDangerBlock'];
-      const DEFAULT_SETTINGS_IDS = ['lodBlock','scheduleBlock','serverInfo','envBlock','visibilityBlock','autoHideBlock','translationBlock'];
+      const DEFAULT_SETTINGS_IDS = ['lodBlock','sizeScalingBlock','scheduleBlock','serverInfo','envBlock','visibilityBlock','autoHideBlock','autoHideHeaderBlock','translationBlock'];
       function loadOrder(key){ try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
       function saveOrder(key, ids){ try { localStorage.setItem(key, JSON.stringify(ids || [])); } catch {} }
       function applyPanelOrder(panelEl, storageKey, defaultIds){
@@ -808,7 +848,66 @@
         return { nodes: nodesJson.data, edges: edgesJson.data };
       }
 
+      // --- Node size scaling helpers (settings-driven) [global] ---
+      function sizeSettingsLoad(){
+        const method = (localStorage.getItem('nodeSize.method') || 'log');
+        const reference = (localStorage.getItem('nodeSize.reference') || 'p95');
+        let minPx = parseInt(localStorage.getItem('nodeSize.minPx') || '20', 10);
+        let maxPx = parseInt(localStorage.getItem('nodeSize.maxPx') || '72', 10);
+        let quantileK = parseInt(localStorage.getItem('nodeSize.quantileK') || '5', 10);
+        if (!Number.isFinite(minPx)) minPx = 20; if (!Number.isFinite(maxPx)) maxPx = 72;
+        minPx = Math.max(12, Math.min(160, minPx));
+        maxPx = Math.max(12, Math.min(200, Math.max(minPx + 1, maxPx)));
+        if (!Number.isFinite(quantileK)) quantileK = 5; quantileK = Math.max(3, Math.min(9, quantileK));
+        const mset = (method==='linear'||method==='sqrt'||method==='quantile') ? method : 'log';
+        const rset = (reference==='max') ? 'max' : 'p95';
+        return { method: mset, reference: rset, minPx, maxPx, quantileK };
+      }
+      function sizePercentile(sortedArr, p){
+        if (!Array.isArray(sortedArr) || !sortedArr.length) return 0;
+        const idx = (sortedArr.length - 1) * p;
+        const lo = Math.floor(idx), hi = Math.ceil(idx);
+        if (lo === hi) return sortedArr[lo];
+        const w = idx - lo; return sortedArr[lo]*(1-w) + sortedArr[hi]*w;
+      }
+      function sizeRefMax(counts, reference){
+        const arr = counts.slice().sort((a,b)=>a-b);
+        if (!arr.length) return 1;
+        if (reference === 'max') return Math.max(1, arr[arr.length-1]);
+        const p = sizePercentile(arr, 0.95); // p95
+        return Math.max(1, Math.round(p));
+      }
+      function sizeQuantileThresholds(counts, k){
+        const arr = counts.slice().sort((a,b)=>a-b);
+        const kk = Math.max(3, Math.min(9, k||5));
+        const t = [];
+        if (!arr.length) return t;
+        for (let i=1; i<kk; i++){
+          const q = i/kk; t.push(sizePercentile(arr, q));
+        }
+        return t;
+      }
+      function sizeFromCountGeneric(count, settings, refMax, thresholds){
+        const minPx = settings.minPx, maxPx = settings.maxPx;
+        const clamp01 = (x)=> Math.max(0, Math.min(1, x));
+        const d = Math.max(0, Number(count||0));
+        if (settings.method === 'linear'){
+          const t = clamp01(d / refMax); return minPx + (maxPx - minPx) * t;
+        }
+        if (settings.method === 'sqrt'){
+          const t = clamp01(Math.sqrt(d) / Math.sqrt(refMax)); return minPx + (maxPx - minPx) * t;
+        }
+        if (settings.method === 'quantile'){
+          const k = Math.max(3, Math.min(9, settings.quantileK||5));
+          if (!thresholds || !thresholds.length){ const t = clamp01(d / refMax); return minPx + (maxPx - minPx) * t; }
+          let bucket = 0; for (let i=0; i<thresholds.length; i++){ if (d > thresholds[i]) bucket = i+1; }
+          const t = (k<=1) ? 0 : (bucket / (k-1)); return minPx + (maxPx - minPx) * t;
+        }
+        const t = clamp01(Math.log1p(d) / Math.log1p(refMax)); return minPx + (maxPx - minPx) * t;
+      }
+
       function toElements(graph) {
+
         const dotIcon = 'data:image/svg+xml;utf8,' + encodeURIComponent(
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">\
             <circle cx="25" cy="25" r="12" fill="#0f172a"/>\
@@ -863,6 +962,21 @@
           return c;
         }
         nodes.forEach(n => { n.data.descendants = countDesc(n.data.id); });
+
+        // Compute viz_size per node based on settings and distribution
+        try {
+          const settings = sizeSettingsLoad();
+          const counts = nodes.map(n => Math.max(0, Number(n.data.descendants||0)));
+          const refMax = sizeRefMax(counts, settings.reference);
+          let thresholds = null;
+          if (settings.method === 'quantile') {
+            thresholds = sizeQuantileThresholds(counts, settings.quantileK);
+          }
+          nodes.forEach(n => {
+            const val = sizeFromCountGeneric(n.data.descendants, settings, refMax, thresholds);
+            n.data.viz_size = Number(val.toFixed(2));
+          });
+        } catch {}
         // Compute lightweight LOD score for each node for zoom-level filtering
         // lod_score combines normalized degree and descendants to approximate importance
         const indegree = new Map();
@@ -928,7 +1042,7 @@
           container: document.getElementById('cy'),
           elements: toElements(graph),
           style: [
-            { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'mapData(descendants, 0, 20, 20, 80)', 'height': 'mapData(descendants, 0, 20, 20, 80)'} },
+            { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'data(viz_size)', 'height': 'data(viz_size)'} },
             { selector: 'node[link_url]', style: { 'color': '#1d4ed8' } },
             { selector: 'edge', style: { 'line-color': '#64748b', 'width': 1.5, 'curve-style': 'bezier', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle', 'arrow-scale': 1.2 } },
             { selector: 'edge[pathPriority = "high"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' } },
@@ -974,6 +1088,21 @@
           layout: { name: allHavePositions ? 'preset' : 'preset' }
         });
         cy.fit();
+
+        // Helper: recompute viz_size for all nodes using current settings
+        function recomputeVizSizes(){
+          try {
+            const settings = sizeSettingsLoad();
+            const nodesArr = cy.nodes().toArray();
+            const counts = nodesArr.map(n => Math.max(0, Number(n.data('descendants')||0)));
+            const refMax = sizeRefMax(counts, settings.reference);
+            const thresholds = (settings.method === 'quantile') ? sizeQuantileThresholds(counts, settings.quantileK) : null;
+            nodesArr.forEach(n => {
+              const val = sizeFromCountGeneric(n.data('descendants')||0, settings, refMax, thresholds);
+              n.data('viz_size', Number(val.toFixed(2)));
+            });
+          } catch {}
+        }
 
         // Recompute priority-based path coloring on current graph
         function recomputePriorityPaths(){
@@ -1506,6 +1635,8 @@
           cy.edges().forEach(ed => { const a = adj.get(ed.data('source')); if (a) a.push(ed.data('target')); });
           function countDesc(start){ const vis = new Set([start]); const q=[start]; let c=0; while(q.length){ const cur=q.shift(); (adj.get(cur)||[]).forEach(t=>{ if(!vis.has(t)){vis.add(t); q.push(t); c++; } }); } return c; }
           nodes.forEach(n => n.data('descendants', countDesc(n.id())));
+          // recompute sizes after descendants updated
+          recomputeVizSizes();
           recomputePriorityPaths();
           // update sidebar descendants counter if selection exists
           try {
@@ -1526,6 +1657,7 @@
               updateDescendantsCount(0);
             }
           } catch {}
+          try { recomputeVizSizes(); } catch {}
         });
 
         document.getElementById('commentForm').addEventListener('submit', async (e) => {
@@ -1659,6 +1791,64 @@
             const k = (e.key || '').toLowerCase();
             if (k === 'enter' || k === ' ') { const f = document.activeElement && document.activeElement.closest && document.activeElement.closest('button[data-value]'); if (f) { e.preventDefault(); f.click(); } }
           });
+        })();
+
+        // --- Size scaling settings UI wiring ---
+        (function wireSizeScaling(){
+          try {
+            const methodEl = document.getElementById('sizeMethod');
+            const refEl = document.getElementById('sizeReference');
+            const minEl = document.getElementById('sizeMinPx');
+            const maxEl = document.getElementById('sizeMaxPx');
+            const qkEl = document.getElementById('sizeQuantileK');
+            const resetBtn = document.getElementById('btnSizeReset');
+            if (!methodEl || !refEl || !minEl || !maxEl || !qkEl || !resetBtn) return;
+            function loadIntoInputs(){
+              const s = sizeSettingsLoad();
+              methodEl.value = s.method;
+              refEl.value = s.reference;
+              minEl.value = String(s.minPx);
+              maxEl.value = String(s.maxPx);
+              qkEl.value = String(s.quantileK);
+            }
+            function saveFromInputs(){
+              let method = String(methodEl.value || 'log');
+              let reference = String(refEl.value || 'p95');
+              let minPx = parseInt(minEl.value || '20', 10);
+              let maxPx = parseInt(maxEl.value || '72', 10);
+              let qk = parseInt(qkEl.value || '5', 10);
+              if (!(method==='linear'||method==='sqrt'||method==='quantile'||method==='log')) method = 'log';
+              if (!(reference==='max'||reference==='p95')) reference = 'p95';
+              if (!Number.isFinite(minPx)) minPx = 20; if (!Number.isFinite(maxPx)) maxPx = 72;
+              minPx = Math.max(12, Math.min(160, minPx));
+              maxPx = Math.max(12, Math.min(200, Math.max(minPx + 1, maxPx)));
+              if (!Number.isFinite(qk)) qk = 5; qk = Math.max(3, Math.min(9, qk));
+              localStorage.setItem('nodeSize.method', method);
+              localStorage.setItem('nodeSize.reference', reference);
+              localStorage.setItem('nodeSize.minPx', String(minPx));
+              localStorage.setItem('nodeSize.maxPx', String(maxPx));
+              localStorage.setItem('nodeSize.quantileK', String(qk));
+            }
+            function onChange(){
+              saveFromInputs();
+              recomputeVizSizes();
+            }
+            methodEl.addEventListener('change', onChange);
+            refEl.addEventListener('change', onChange);
+            minEl.addEventListener('input', onChange);
+            maxEl.addEventListener('input', onChange);
+            qkEl.addEventListener('input', onChange);
+            resetBtn.addEventListener('click', ()=>{
+              localStorage.setItem('nodeSize.method', 'log');
+              localStorage.setItem('nodeSize.reference', 'p95');
+              localStorage.setItem('nodeSize.minPx', '20');
+              localStorage.setItem('nodeSize.maxPx', '72');
+              localStorage.setItem('nodeSize.quantileK', '5');
+              loadIntoInputs();
+              recomputeVizSizes();
+            });
+            loadIntoInputs();
+          } catch {}
         })();
 
         // Hide from board checkbox wiring
@@ -3491,6 +3681,7 @@
           wireCollapsibleSection({ toggleId: 'translationToggle', bodyId: 'translationBody', storageKey: 'sidebar.settings.translation.collapsed' });
           wireCollapsibleSection({ toggleId: 'visibilityToggle', bodyId: 'visibilityBody', storageKey: 'sidebar.settings.visibility.collapsed' });
           wireCollapsibleSection({ toggleId: 'zoomToggle', bodyId: 'zoomBody', storageKey: 'sidebar.settings.zoom.collapsed' });
+          wireCollapsibleSection({ toggleId: 'sizeScalingToggle', bodyId: 'sizeScalingBody', storageKey: 'sidebar.settings.sizeScaling.collapsed' });
           wireCollapsibleSection({ toggleId: 'autoHideToggle', bodyId: 'autoHideBody', storageKey: 'sidebar.settings.autohide.collapsed' });
           wireCollapsibleSection({ toggleId: 'autoHideHeaderToggle', bodyId: 'autoHideHeaderBody', storageKey: 'sidebar.settings.autohideHeader.collapsed' });
           // Apply and wire reorder behavior
