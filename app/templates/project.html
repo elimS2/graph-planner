@@ -388,6 +388,11 @@
                   <span>Performance LOD (improve large graph zoom)</span>
                 </label>
                 <p class="text-xs text-slate-500">When enabled, low-importance nodes may fade/hide at low zoom to keep the view responsive. Disable to always show all nodes.</p>
+                <label class="inline-flex items-center gap-2 mt-2">
+                  <input id="minCollapseNavigate" type="checkbox" class="align-middle">
+                  <span>Navigate to central node on extreme zoom-out</span>
+                </label>
+                <p class="text-xs text-slate-500">When enabled, zooming out until the board collapses will open the central node link in the current tab (if present).</p>
               </div>
             </div>
 
@@ -1237,6 +1242,32 @@
           layout: { name: allHavePositions ? 'preset' : 'preset' }
         });
         cy.fit();
+
+        // Fit cooldown tracking for zoom-out navigation
+        let lastFitAt = 0;
+        (function wrapCyFitForCooldown(){
+          try {
+            const __origFit = cy.fit.bind(cy);
+            cy.fit = function(){
+              try { lastFitAt = Date.now(); } catch {}
+              return __origFit.apply(cy, arguments);
+            };
+          } catch {}
+        })();
+
+        // Min-collapse navigate toggle wiring
+        (function initMinCollapseNavigateToggle(){
+          const chk = document.getElementById('minCollapseNavigate');
+          if (!chk) return;
+          try {
+            const saved = localStorage.getItem(MIN_NAV_ENABLE_KEY);
+            // default: enabled when key not set
+            chk.checked = (saved === null || saved !== '0');
+          } catch { chk.checked = true; }
+          chk.addEventListener('change', () => {
+            try { localStorage.setItem(MIN_NAV_ENABLE_KEY, chk.checked ? '1' : '0'); } catch {}
+          });
+        })();
 
         // Helper: recompute viz_size for all nodes using current settings
         function recomputeVizSizes(){
@@ -2583,6 +2614,96 @@
         }
         cy.on('zoom', applyLOD);
         applyLOD();
+        // Subscribe min-collapse navigate after LOD
+        try { cy.on('zoom', handleZoomOutNavigate); } catch {}
+        // --- Zoom-out to central link (min-collapse navigate) ---
+        const MIN_NAVIGATE_LEVEL = 0.06; // slightly above hard min (0.05)
+        const COLLAPSE_WINDOW_MS = 600;  // gesture window for zoom-out
+        const FIT_COOLDOWN_MS = 600;     // suppress after fit/reset
+        const MIN_NAV_ENABLE_KEY = 'zoom.minCollapseNavigate.enabled';
+        let zoomOutNavigateFiredAt = 0;
+        let lastZoomLevel = cy.zoom();
+        let lastZoomAt = Date.now();
+
+        function isMinCollapseNavigateEnabled(){
+          try { return localStorage.getItem(MIN_NAV_ENABLE_KEY) !== '0'; } catch { return true; }
+        }
+
+        // lastFitAt is updated by wrapped cy.fit()
+
+        function pickCentralNodeId(){
+          try {
+            const baseNodes = cy.nodes().filter(n => !Boolean(n.data('origParent')));
+            const visibleBase = baseNodes.filter(n => n.style('display') !== 'none');
+            const raw = (visibleBase.length > 0 ? visibleBase : baseNodes).toArray();
+            let candidates = raw.filter(n => {
+              try {
+                const url = String(n.data('link_url')||'').trim();
+                return !!url;
+              } catch { return false; }
+            });
+            if (!candidates || candidates.length === 0) return null;
+            // degree and descendants from data; fallbacks safe
+            const degreeById = new Map();
+            cy.nodes().forEach(n => degreeById.set(n.id(), 0));
+            cy.edges().forEach(e => {
+              try {
+                const s = String(e.data('source')||'');
+                const t = String(e.data('target')||'');
+                if (degreeById.has(s)) degreeById.set(s, (degreeById.get(s)||0)+1);
+                if (degreeById.has(t)) degreeById.set(t, (degreeById.get(t)||0)+1);
+              } catch {}
+            });
+            candidates.sort((a,b)=>{
+              const ac = Number(a.data('descendants')||0);
+              const bc = Number(b.data('descendants')||0);
+              if (bc !== ac) return bc - ac; // primary: descendants
+              const ad = Number(degreeById.get(a.id())||0);
+              const bd = Number(degreeById.get(b.id())||0);
+              if (bd !== ad) return bd - ad; // secondary: degree
+              const ai = Number(a.data('score')||0);
+              const bi = Number(b.data('score')||0);
+              if (bi !== ai) return bi - ai; // tertiary: importance score
+              const aid = String(a.id()); const bid = String(b.id());
+              return aid < bid ? -1 : (aid > bid ? 1 : 0);
+            });
+            const top = candidates[0];
+            if (!top || !top.nonempty()) return null;
+            const url = String(top.data('link_url')||'').trim();
+            if (!url) return null;
+            return String(top.id());
+          } catch { return null; }
+        }
+
+        function handleZoomOutNavigate(){
+          try {
+            if (!isMinCollapseNavigateEnabled()) return;
+            const now = Date.now();
+            // Suppress right after fit/reset
+            if (now - lastFitAt < FIT_COOLDOWN_MS) return;
+            // Human gesture signal: recent wheel or button zoom activity recorded elsewhere
+            const recentInteraction = (now - lastWheelAt) <= COLLAPSE_WINDOW_MS;
+            const current = cy.zoom();
+            const was = lastZoomLevel;
+            lastZoomLevel = current; lastZoomAt = now;
+            // Need a crossing from above to below the threshold and a net zoom-out
+            const crossedDown = (was > MIN_NAVIGATE_LEVEL) && (current <= MIN_NAVIGATE_LEVEL);
+            const isZoomingOut = (current < was);
+            if (!crossedDown || !isZoomingOut) return;
+            if (!recentInteraction) return;
+            // Gate once per collapse gesture
+            if (now - zoomOutNavigateFiredAt < COLLAPSE_WINDOW_MS) return;
+            const centralId = pickCentralNodeId();
+            if (!centralId) return;
+            const n = cy.getElementById(String(centralId));
+            if (!n || !n.nonempty()) return;
+            const url = String(n.data('link_url')||'').trim();
+            if (!url) return;
+            zoomOutNavigateFiredAt = now;
+            // Open in current tab, consistent with oversized zoom behavior
+            location.assign(url);
+          } catch {}
+        }
         // Initialize zoom/render anchor at viewport center for anchor-based focus
         let anchor = { x: Math.floor(cy.width() / 2), y: Math.floor(cy.height() / 2) };
         const WHEEL_WINDOW_MS = 400;
@@ -2905,7 +3026,7 @@
         document.getElementById('statusFilter').addEventListener('change', applySearchAndFilter);
 
         // Fit
-        document.getElementById('btnFit').addEventListener('click', () => cy.fit());
+        document.getElementById('btnFit').addEventListener('click', () => { try { cy.fit(); } finally { try { markFitCooldown(); } catch {} } });
 
         // LOD toggle wiring
         (function initLodToggle(){
