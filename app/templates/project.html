@@ -550,6 +550,21 @@
                 </div>
               </div>
             </div>
+            <div id="commentsSettingsBlock" class="rounded border p-3 bg-white space-y-2">
+              <button id="commentsSettingsToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="commentsSettingsBody">
+                <span>Comments</span>
+                <span data-chevron class="ml-2 inline-block transition-transform">›</span>
+              </button>
+              <div id="commentsSettingsBody" class="space-y-2">
+                <label class="text-sm text-slate-700">Default order
+                  <select id="settingsCommentsOrder" class="ml-2 border rounded px-2 py-1" aria-label="Default comments order">
+                    <option value="asc">Oldest → Newest</option>
+                    <option value="desc">Newest → Oldest</option>
+                  </select>
+                </label>
+                <p class="text-xs text-slate-500 mt-1">Controls how comments are loaded in the sidebar. Auto-scroll respects your reading position.</p>
+              </div>
+            </div>
             <div id="autoHideBlock" class="rounded border p-3 bg-white space-y-2">
               <button id="autoHideToggle" type="button" class="w-full text-left font-semibold mb-2 flex items-center justify-between focus:outline-none focus:ring-0 rounded" aria-expanded="true" aria-controls="autoHideBody">
                 <span>Auto-Hide Sidebar</span>
@@ -693,7 +708,7 @@
       // Sidebar reorder helpers (top-level)
       const ORDER_KEYS = { task: 'sidebar.task.order', settings: 'sidebar.settings.order' };
       const DEFAULT_TASK_IDS = ['taskSelectionLinkBlock','taskMetadataBlock','taskStatusPriorityBlock','taskVisibilityBlock','taskCommentsBlock','taskHistoryBlock','taskTimeBlock','taskCostsBlock','taskDangerBlock'];
-      const DEFAULT_SETTINGS_IDS = ['lodBlock','sizeScalingBlock','scheduleBlock','serverInfo','envBlock','visibilityBlock','autoHideBlock','autoHideHeaderBlock','translationBlock'];
+      const DEFAULT_SETTINGS_IDS = ['lodBlock','sizeScalingBlock','scheduleBlock','serverInfo','envBlock','visibilityBlock','commentsSettingsBlock','autoHideBlock','autoHideHeaderBlock','translationBlock'];
       function loadOrder(key){ try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
       function saveOrder(key, ids){ try { localStorage.setItem(key, JSON.stringify(ids || [])); } catch {} }
       function applyPanelOrder(panelEl, storageKey, defaultIds){
@@ -1260,9 +1275,47 @@
         const specPrefetchUrls = new Set();
         const specPrerenderUrls = new Set();
         let selectedEdgeId = null;
+        // Comments autoscroll state
+        let commentsAutoScroll = true; // default: auto-scroll on first load
+        function isNearBottom(el){
+          try { return (el.scrollHeight - (el.scrollTop + el.clientHeight)) < 48; } catch { return true; }
+        }
+        function wireCommentsScrollState(){
+          try {
+            const el = document.getElementById('commentsList');
+            if (!el || el.dataset.scrollWired === '1') return;
+            el.addEventListener('scroll', () => {
+              try { commentsAutoScroll = isNearBottom(el); } catch {}
+            });
+            el.dataset.scrollWired = '1';
+          } catch {}
+        }
+        function scrollCommentsToBottom(){
+          try {
+            const listEl = document.getElementById('commentsList');
+            if (!listEl) return;
+            const doScroll = () => {
+              try {
+                const last = listEl.lastElementChild;
+                if (last && typeof last.scrollIntoView === 'function') {
+                  last.scrollIntoView({ block: 'end' });
+                }
+                listEl.scrollTop = listEl.scrollHeight;
+              } catch {}
+            };
+            if (window.requestAnimationFrame) {
+              requestAnimationFrame(() => requestAnimationFrame(doScroll));
+            } else {
+              setTimeout(doScroll, 0);
+            }
+          } catch {}
+        }
         async function refreshLists(nodeId) {
           const lang = getCurrentLang();
-          const q = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+          // Load default comments order from preferences
+          const defOrder = (localStorage.getItem('comments.order') || 'asc');
+          const order = (defOrder === 'desc') ? 'desc' : 'asc';
+          const q = `${lang ? `?lang=${encodeURIComponent(lang)}` : ''}${lang ? `&` : `?`}order=${order}`;
           const [c, t, k] = await Promise.all([
             fetch(`/api/v1/nodes/${nodeId}/comments${q}`).then(r=>r.json()),
             fetch(`/api/v1/nodes/${nodeId}/time-entries`).then(r=>r.json()),
@@ -1270,6 +1323,7 @@
           ]);
           await ensureCurrentUser();
           const commentsList = document.getElementById('commentsList');
+          wireCommentsScrollState();
           commentsList.innerHTML = '';
           // Hide empty list area to avoid large blank space above the input form
           try {
@@ -1409,6 +1463,20 @@
             }
             commentsList.appendChild(li);
           });
+          // Auto-scroll for messenger-like UX
+          try {
+            const listEl = document.getElementById('commentsList');
+            if (listEl){
+              if (order === 'asc') {
+                // Scroll if user was near bottom before refresh or first load
+                if (commentsAutoScroll) scrollCommentsToBottom();
+              } else {
+                // For desc, keep view at top if user stayed near top
+                const atTop = listEl.scrollTop < 16;
+                if (atTop) { listEl.scrollTop = 0; }
+              }
+            }
+          } catch {}
           const timeList = document.getElementById('timeList');
           timeList.innerHTML = '';
           t.data.forEach(x => {
@@ -1838,12 +1906,12 @@
             minEl.addEventListener('input', onChange);
             maxEl.addEventListener('input', onChange);
             qkEl.addEventListener('input', onChange);
-            resetBtn.addEventListener('click', ()=>{
-              localStorage.setItem('nodeSize.method', 'log');
-              localStorage.setItem('nodeSize.reference', 'p95');
-              localStorage.setItem('nodeSize.minPx', '20');
-              localStorage.setItem('nodeSize.maxPx', '72');
-              localStorage.setItem('nodeSize.quantileK', '5');
+            resetBtn.addEventListener('click', () => {
+              localStorage.removeItem('nodeSize.method');
+              localStorage.removeItem('nodeSize.reference');
+              localStorage.removeItem('nodeSize.minPx');
+              localStorage.removeItem('nodeSize.maxPx');
+              localStorage.removeItem('nodeSize.quantileK');
               loadIntoInputs();
               recomputeVizSizes();
             });
@@ -3682,6 +3750,7 @@
           wireCollapsibleSection({ toggleId: 'visibilityToggle', bodyId: 'visibilityBody', storageKey: 'sidebar.settings.visibility.collapsed' });
           wireCollapsibleSection({ toggleId: 'zoomToggle', bodyId: 'zoomBody', storageKey: 'sidebar.settings.zoom.collapsed' });
           wireCollapsibleSection({ toggleId: 'sizeScalingToggle', bodyId: 'sizeScalingBody', storageKey: 'sidebar.settings.sizeScaling.collapsed' });
+          wireCollapsibleSection({ toggleId: 'commentsSettingsToggle', bodyId: 'commentsSettingsBody', storageKey: 'sidebar.settings.comments.collapsed' });
           wireCollapsibleSection({ toggleId: 'autoHideToggle', bodyId: 'autoHideBody', storageKey: 'sidebar.settings.autohide.collapsed' });
           wireCollapsibleSection({ toggleId: 'autoHideHeaderToggle', bodyId: 'autoHideHeaderBody', storageKey: 'sidebar.settings.autohideHeader.collapsed' });
           // Apply and wire reorder behavior
@@ -4324,6 +4393,24 @@
             const bkpP = document.getElementById('btnBackupDBPanel'); if (bkpP && bkpP.dataset.wired !== '1') { bkpP.dataset.wired='1'; bkpP.addEventListener('click', ()=> { const b=document.getElementById('btnBackupDB'); if (b) b.click(); }); }
             const expP = document.getElementById('btnExportJSONPanel'); if (expP && expP.dataset.wired !== '1') { expP.dataset.wired='1'; expP.addEventListener('click', ()=> { const b=document.getElementById('btnExportJSON'); if (b) b.click(); }); }
             const impP = document.getElementById('btnImportJSONPanel'); if (impP && impP.dataset.wired !== '1') { impP.dataset.wired='1'; impP.addEventListener('click', ()=> { const b=document.getElementById('btnImportJSON'); if (b) b.click(); }); }
+          } catch {}
+        })();
+
+        // --- Comments order setting wiring ---
+        (function wireCommentsOrder(){
+          try {
+            const sel = document.getElementById('settingsCommentsOrder');
+            if (!sel) return;
+            // Load persisted value
+            const persisted = localStorage.getItem('comments.order') || 'asc';
+            sel.value = (persisted === 'desc') ? 'desc' : 'asc';
+            sel.addEventListener('change', async () => {
+              const v = (sel.value === 'desc') ? 'desc' : 'asc';
+              localStorage.setItem('comments.order', v);
+              if (selectedNodeId) {
+                await refreshLists(selectedNodeId);
+              }
+            });
           } catch {}
         })();
       })();

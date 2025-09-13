@@ -488,7 +488,15 @@ def add_comment(node_id: str):
 @bp.get("/nodes/<node_id>/comments")
 def list_comments(node_id: str):
     lang = (request.args.get("lang") or "").lower().strip()
-    items = db.session.query(Comment).filter_by(node_id=node_id).order_by(Comment.created_at.desc()).all()
+    order = (request.args.get("order") or "asc").strip().lower()
+    if order not in {"asc", "desc"}:
+        order = "asc"
+    q = db.session.query(Comment).filter_by(node_id=node_id)
+    if order == "desc":
+        q = q.order_by(Comment.created_at.desc())
+    else:
+        q = q.order_by(Comment.created_at.asc())
+    items = q.all()
     payload = CommentWithAttachmentsSchema(many=True).dump(items)
     if lang:
         from ...models import CommentTranslation
