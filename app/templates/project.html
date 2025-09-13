@@ -1469,10 +1469,11 @@
           if (!res.ok && res.status !== 204) throw new Error('Request failed');
         }
 
-        function addNodeToCy(n) {
+        function addNodeToCy(n, position) {
           const ext = cy.extent();
           const padding = 30;
-          const pos = { x: ext.x1 + padding, y: ext.y1 + padding };
+          const hasPos = position && typeof position.x === 'number' && typeof position.y === 'number';
+          const pos = hasPos ? { x: position.x, y: position.y } : { x: ext.x1 + padding, y: ext.y1 + padding };
           cy.add({ group: 'nodes', data: { id: n.id, label: n.title, score: n.importance_score || 0, status: n.status || 'todo', savedX: pos.x, savedY: pos.y }, position: pos });
           // Persist initial position best-effort
           postJSON(`/api/v1/nodes/${n.id}/position`, { x: pos.x, y: pos.y }).catch(()=>{});
@@ -1812,14 +1813,14 @@
 
         // Unified connect mode: via button or hold 'c'. ESC / click background cancels. Prevent dup/invalid.
         (function connectMode(){
-          let active = false; let sourceId = null; let timeoutId = null;
+          let active = false; let sourceId = null; let timeoutId = null; let lastCreatedNodeId = null; let createInFlight = false;
           try { window.isConnectModeActive = false; window.isConnectKeyHeld = false; } catch {}
           const srcClass = 'connect-source';
           // hint overlay
           const hint = document.createElement('div');
           hint.className = 'pointer-events-none fixed inset-x-0 top-16 text-center z-40';
           hint.style.display = 'none';
-          hint.innerHTML = '<span class="inline-block px-3 py-1 bg-black/70 text-white rounded">Connect mode: click source, then target (ESC to cancel, hold C for quick connect)</span>';
+          hint.innerHTML = '<span class="inline-block px-3 py-1 bg-black/70 text-white rounded">Connect mode: click source, then target or background to create new (ESC to cancel, hold C for quick connect)</span>';
           document.body.appendChild(hint);
           function setActive(on){
             active = on;
@@ -1846,10 +1847,64 @@
             else { tryCreateEdge(id); }
           };
           cy.on('tap', 'node', pickHandler);
-          cy.on('tap', (evt) => { if (active && evt.target === cy) cancel(); });
+          cy.on('tap', async (evt) => {
+            if (!active || evt.target !== cy) return;
+            // In button-activated mode or when C not held — keep old behavior: cancel on background tap
+            if (!window.isConnectKeyHeld) { cancel(); return; }
+            if (!sourceId) { /* no source chosen */ return; }
+            if (createInFlight) return;
+            createInFlight = true;
+            const prev = String(sourceId);
+            try {
+              const p = (evt && evt.position) ? evt.position : { x: (cy.extent().x1||0)+40, y: (cy.extent().y1||0)+40 };
+              const nodeResp = await postJSON(`/api/v1/projects/${projectId}/nodes`, { title: 'New node' });
+              const newNode = nodeResp && nodeResp.data ? nodeResp.data : nodeResp;
+              addNodeToCy(newNode, p);
+              // Create edge from prev source to the new node if not duplicate
+              if (prev && String(newNode.id) !== prev) {
+                const dup = cy.edges().some(e => e.data('source')===prev && e.data('target')===String(newNode.id));
+                if (!dup) {
+                  const edgeResp = await postJSON(`/api/v1/projects/${projectId}/edges`, { source_node_id: prev, target_node_id: String(newNode.id) });
+                  if (edgeResp && edgeResp.data) addEdgeToCy(edgeResp.data);
+                }
+              }
+              // switch source highlight from old to new to allow chaining
+              try { if (prev) cy.getElementById(prev).removeClass(srcClass); } catch {}
+              sourceId = String(newNode.id);
+              try { cy.getElementById(sourceId).addClass(srcClass); } catch {}
+              lastCreatedNodeId = sourceId;
+              // Keep mode active; optionally refresh timeout to allow more time
+              try { if (timeoutId) { clearTimeout(timeoutId); timeoutId = setTimeout(()=>setActive(false), 10000); } } catch {}
+            } catch (e) {
+              alert((e && e.message) || 'Failed to create node');
+              cancel();
+            } finally {
+              createInFlight = false;
+            }
+          });
           const isConnectKey = (k) => { const v=(k||'').toLowerCase(); return v==='c' || v==='с'; };
           document.addEventListener('keydown', (e)=>{ if (isConnectKey(e.key)){ try { window.isConnectKeyHeld = true; } catch {} if (!active){ setActive(true); }}});
-          document.addEventListener('keyup', (e)=>{ if (isConnectKey(e.key)){ try { window.isConnectKeyHeld = false; } catch {} cancel(); }});
+          document.addEventListener('keyup', (e)=>{
+            if (!isConnectKey(e.key)) return;
+            try { window.isConnectKeyHeld = false; } catch {}
+            const last = lastCreatedNodeId;
+            cancel();
+            if (last){
+              try {
+                const n = cy.getElementById(String(last));
+                if (n && n.nonempty && n.nonempty()) {
+                  try { cy.elements().unselect(); } catch {}
+                  try { n.select(); } catch {}
+                  try { if (typeof n.emit === 'function') n.emit('tap'); } catch {}
+                  requestAnimationFrame(()=>{
+                    const el = document.getElementById('selNodeTitle');
+                    if (el && typeof el.focus === 'function') { try { el.focus(); } catch {} }
+                  });
+                }
+              } catch {}
+              lastCreatedNodeId = null;
+            }
+          });
           document.getElementById('btnAddEdge').addEventListener('click', ()=>{ setActive(true); });
           document.addEventListener('keydown', (e)=>{ if (e.key==='Escape' && active){ e.preventDefault(); cancel(); }});
         })();
