@@ -6,6 +6,10 @@
     <title>{{ project.name }} - Graph</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="https://unpkg.com/cytoscape-fcose@2.2.0/cytoscape-fcose.js"></script>
+    <script src="https://unpkg.com/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
     <style>
@@ -96,6 +100,37 @@
               </select>
             </label>
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
+            
+            <div class="inline-flex items-center gap-2 ml-2 px-2 py-1 bg-slate-100 rounded">
+              <label for="layoutMode" class="text-sm text-slate-700">Layout</label>
+              <select id="layoutMode" class="border rounded px-2 py-1 text-sm">
+                <option value="saved">Saved</option>
+                <option value="suggested">Suggested</option>
+              </select>
+              <select id="layoutAlgo" class="border rounded px-2 py-1 text-sm" title="Algorithm">
+                <option value="fcose">fcose</option>
+                <option value="dagre">dagre</option>
+                <option value="cose-bilkent">cose-bilkent</option>
+                <option value="cose">cose</option>
+                <option value="concentric">concentric</option>
+                <option value="grid">grid</option>
+              </select>
+              <label for="layoutPreset" class="ml-2 text-sm text-slate-700">Preset</label>
+              <select id="layoutPreset" class="border rounded px-2 py-1 text-sm" title="Preset layout">
+                <option value="none">None</option>
+                <option value="tree-lr">Tree LR</option>
+                <option value="tree-tb">Tree TB</option>
+                <option value="radial-tree">Radial Tree</option>
+                <option value="circular">Circular</option>
+              </select>
+              <button id="btnRunLayout" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Run</button>
+              <button id="btnRefineLayout" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800" title="Reduce overlaps and shorten extra-long edges">Refine</button>
+              <button id="btnRestoreSaved" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Restore Saved</button>
+              <label for="layoutSpacing" class="ml-2 text-sm text-slate-700">Spacing</label>
+              <input id="layoutSpacing" type="range" min="0.8" max="2.4" step="0.1" value="1.2" class="align-middle">
+              <span id="layoutSpacingValue" class="text-xs text-slate-600">x1.2</span>
+              <button id="btnArrangeNeighbors" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800" title="Arrange neighbors of the selected node in a circle">Arrange Neighbors</button>
+            </div>
             
             
             <button id="btnResetView" class="px-3 py-1 bg-slate-200 text-slate-800 rounded">Reset View</button>
@@ -1194,9 +1229,10 @@
         const allHavePositions = Array.isArray(graph.nodes) && graph.nodes.length > 0 && graph.nodes.every(n => n.position && typeof n.position.x === 'number' && typeof n.position.y === 'number');
         const cy = cytoscape({
           container: document.getElementById('cy'),
+          nodeDimensionsIncludeLabels: true,
           elements: toElements(graph),
           style: [
-            { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'data(viz_size)', 'height': 'data(viz_size)'} },
+            { selector: 'node', style: { 'label': 'data(label)', 'font-size': 12, 'text-wrap': 'wrap', 'text-max-width': 'mapData(viz_size, 28, 68, 120, 240)', 'text-halign': 'center', 'text-valign': 'center', 'color': '#0f172a', 'background-color': '#38bdf8', 'width': 'data(viz_size)', 'height': 'data(viz_size)'} },
             { selector: 'node[link_url]', style: { 'color': '#1d4ed8' } },
             { selector: 'edge', style: { 'line-color': '#64748b', 'width': 1.5, 'curve-style': 'bezier', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle', 'arrow-scale': 1.2 } },
             { selector: 'edge[pathPriority = "high"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' } },
@@ -1207,7 +1243,7 @@
             /* Cytoscape doesn't support :hover selector here; remove to avoid errors */
             /* { selector: 'edge:hover', style: { 'line-color': '#334155', 'target-arrow-color': '#334155', 'width': 2.5, 'arrow-scale': 1.5 } }, */
             { selector: 'edge:selected', style: { 'line-color': '#0ea5e9', 'target-arrow-color': '#0ea5e9', 'width': 2.5, 'arrow-scale': 1.5 } },
-            { selector: 'node:selected', style: { 'border-width': 6, 'border-color': '#0ea5e9', 'border-opacity': 1, 'text-outline-color': '#ffffff', 'text-outline-width': 2, 'overlay-color': '#0ea5e9', 'overlay-opacity': 0.08 } },
+            { selector: 'node:selected', style: { 'border-width': 6, 'border-opacity': 1, 'text-outline-color': '#ffffff', 'text-outline-width': 2, 'overlay-opacity': 0.08 } },
             { selector: 'node[?is_hidden]:selected', style: { 'opacity': 0.85 } },
             { selector: 'node.dim', style: { 'opacity': 0.55 } },
             { selector: 'edge.dim', style: { 'opacity': 0.3 } },
@@ -1216,6 +1252,11 @@
             { selector: 'node[status = "in-progress"]', style: { 'background-color': '#f59e0b' } },
             { selector: 'node[status = "discuss"]', style: { 'background-color': '#8b5cf6' } },
             { selector: 'node[status = "blocked"]', style: { 'background-color': '#ef4444' } },
+            { selector: 'node:selected[status = "planned"]', style: { 'border-color': '#0ea5e9', 'overlay-color': '#0ea5e9' } },
+            { selector: 'node:selected[status = "in-progress"]', style: { 'border-color': '#d97706', 'overlay-color': '#d97706' } },
+            { selector: 'node:selected[status = "discuss"]', style: { 'border-color': '#7c3aed', 'overlay-color': '#7c3aed' } },
+            { selector: 'node:selected[status = "done"]', style: { 'border-color': '#16a34a', 'overlay-color': '#16a34a' } },
+            { selector: 'node:selected[status = "blocked"]', style: { 'border-color': '#dc2626', 'overlay-color': '#dc2626' } },
             { selector: '.cp', style: { 'border-width': 4, 'border-color': '#14b8a6' } },
             { selector: 'node[?is_group]', style: {
                 'shape': 'ellipse',
@@ -1242,6 +1283,349 @@
           layout: { name: allHavePositions ? 'preset' : 'preset' }
         });
         cy.fit();
+
+        // --- Layout Preview State ---
+        let layoutPreviewActive = false;
+        const savedPositionSnapshot = new Map();
+
+        function captureCurrentPositions(){
+          savedPositionSnapshot.clear();
+          cy.nodes().forEach(n=>{
+            const p = n.position();
+            savedPositionSnapshot.set(n.id(), { x: p.x, y: p.y });
+          });
+        }
+
+        function restoreSavedPositions(){
+          const keepPan = cy.pan();
+          const keepZoom = cy.zoom();
+          cy.nodes().forEach(n=>{
+            const sx = n.data('savedX');
+            const sy = n.data('savedY');
+            if (typeof sx === 'number' && typeof sy === 'number') {
+              n.position({ x: sx, y: sy });
+            } else {
+              const snap = savedPositionSnapshot.get(n.id());
+              if (snap) n.position(snap);
+            }
+          });
+          try { cy.pan(keepPan); cy.zoom(keepZoom); } catch {}
+        }
+
+        function approximateMaxLabelWidth(){
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('no canvas');
+            ctx.font = '12px sans-serif';
+            let max = 0;
+            cy.nodes().forEach(n => {
+              const txt = String(n.data('label')||'');
+              const w = ctx.measureText(txt).width;
+              if (w > max) max = w;
+            });
+            return Math.min(720, Math.max(120, Math.floor(max)));
+          } catch { return 160; }
+        }
+
+        function currentSpacing(){
+          try {
+            const s = document.getElementById('layoutSpacing');
+            const v = s ? parseFloat(s.value||'1.0') : 1.0;
+            return isFinite(v) && v>0 ? v : 1.0;
+          } catch { return 1.0; }
+        }
+
+        function runSuggestedLayout(algo){
+          const labelPad = approximateMaxLabelWidth();
+          const spacing = currentSpacing();
+          const baseIdeal = Math.max(140, Math.min(360, Math.floor(labelPad * 1.05 * spacing)));
+          const sep = Math.max(50, Math.min(180, Math.floor(labelPad * 0.6 * spacing)));
+          let opts = { name: String(algo||'fcose') };
+          if (algo === 'fcose') {
+            opts = { name: 'fcose', quality: 'default', randomize: true, animate: false, idealEdgeLength: baseIdeal, nodeRepulsion: 6500, gravity: 0.25 };
+          } else if (algo === 'dagre') {
+            opts = { name: 'dagre', rankDir: 'LR', nodeSep: sep, rankSep: Math.max(sep, 60), edgeSep: Math.floor(sep/3) };
+          } else if (algo === 'cose-bilkent') {
+            opts = { name: 'cose-bilkent', animate: false, nodeRepulsion: 6500, idealEdgeLength: baseIdeal, componentSpacing: sep, nodeDimensionsIncludeLabels: true };
+          } else if (algo === 'cose') {
+            opts = { name: 'cose', animate: false, idealEdgeLength: baseIdeal, nodeOverlap: 2 };
+          } else if (algo === 'concentric') {
+            opts = { name: 'concentric', animate: false, minNodeSpacing: Math.floor(sep/2) };
+          } else if (algo === 'grid') {
+            opts = { name: 'grid', animate: false, spacingFactor: 1.0 + (sep/120) };
+          }
+          cy.layout(opts).run();
+        }
+
+        // Simple physics nudge to reduce overlaps, prioritizing small nodes
+        function refineLayout(iter=16){
+          // Parameters (scaled by spacing)
+          const spacing = currentSpacing();
+          const maxStep = 12;
+          const repelK = 1800; // stronger for small-small pairs
+          const pullKBase = 0.0012; // along edges (base)
+          const longEdgeClamp = Math.max(260, Math.floor(420 * spacing)); // clamp very long edges
+          const centerPull = 0.0015; // gentle gravity towards global centroid for far components
+          const nodes = cy.nodes().toArray();
+          const edges = cy.edges().toArray();
+          const idToIdx = new Map(nodes.map((n,i)=>[n.id(), i]));
+          const adj = Array(nodes.length).fill(0).map(()=>[]);
+          edges.forEach(e=>{ const s=idToIdx.get(e.data('source')); const t=idToIdx.get(e.data('target')); if (s!=null && t!=null){ adj[s].push(t); adj[t].push(s); }});
+          // Connected components
+          const comp = new Array(nodes.length).fill(-1);
+          let compCnt = 0;
+          for (let i=0;i<nodes.length;i++) if (comp[i]===-1){
+            const q=[i]; comp[i]=compCnt; while(q.length){ const v=q.shift(); for (const u of adj[v]) if (comp[u]===-1){ comp[u]=compCnt; q.push(u);} }
+            compCnt++;
+          }
+          for (let it=0; it<iter; it++){
+            const dx = new Array(nodes.length).fill(0);
+            const dy = new Array(nodes.length).fill(0);
+            // global centroid (for soft gravity)
+            let gx=0, gy=0; for (const n of nodes){ const p=n.position(); gx+=p.x; gy+=p.y; } gx/=nodes.length||1; gy/=nodes.length||1;
+            for (let i=0;i<nodes.length;i++){
+              const ni = nodes[i];
+              const pi = ni.position();
+              const si = Number(ni.data('viz_size')||32);
+              for (let j=i+1;j<nodes.length;j++){
+                const nj = nodes[j];
+                const pj = nj.position();
+                const sj = Number(nj.data('viz_size')||32);
+                const vx = pi.x - pj.x; const vy = pi.y - pj.y;
+                let dist2 = vx*vx + vy*vy;
+                if (dist2 < 1) dist2 = 1;
+                // priority: small-small repel stronger
+                const smallBoost = (si<40 && sj<40) ? 4.0 : (si<40 || sj<40 ? 2.0 : 1.0);
+                const f = (repelK * smallBoost) / dist2;
+                const d = Math.sqrt(dist2);
+                const ux = vx / d; const uy = vy / d;
+                dx[i] += f*ux; dy[i] += f*uy; dx[j] -= f*ux; dy[j] -= f*uy;
+              }
+              // soft gravity to center for far-away nodes
+              const cgx = gx - pi.x; const cgy = gy - pi.y;
+              const cd = Math.sqrt(cgx*cgx + cgy*cgy);
+              if (cd > longEdgeClamp * 1.2){
+                const ux = cgx / (cd||1); const uy = cgy / (cd||1);
+                dx[i] += centerPull * cd * ux; dy[i] += centerPull * cd * uy;
+              }
+            }
+            // Pull along edges (and clamp very long)
+            edges.forEach(e=>{
+              const s = idToIdx.get(e.data('source')); const t = idToIdx.get(e.data('target'));
+              if (s==null || t==null) return;
+              const ns = nodes[s]; const nt = nodes[t];
+              const ps = ns.position(); const pt = nt.position();
+              const vx = pt.x - ps.x; const vy = pt.y - ps.y;
+              const d = Math.max(1, Math.sqrt(vx*vx+vy*vy));
+              const want = Math.min(longEdgeClamp, d);
+              const strong = d > longEdgeClamp ? 3.0 : 1.0;
+              const scale = (d - want) * (pullKBase * strong);
+              const ux = vx / d; const uy = vy / d;
+              dx[s] += scale*ux; dy[s] += scale*uy; dx[t] -= scale*ux; dy[t] -= scale*uy;
+            });
+            for (let i=0;i<nodes.length;i++){
+              const n = nodes[i];
+              const p = n.position();
+              const mx = Math.max(-maxStep, Math.min(maxStep, dx[i]));
+              const my = Math.max(-maxStep, Math.min(maxStep, dy[i]));
+              n.position({ x: p.x + mx, y: p.y + my });
+            }
+          }
+        }
+
+        // Arrange neighbors of the selected node radially
+        (function wireArrangeNeighbors(){
+          const btn = document.getElementById('btnArrangeNeighbors');
+          if (!btn) return;
+          function arrangeFor(center){
+            const centerId = center.id();
+            // Prefer true children (outgoing targets). Fallback to all neighbors if none.
+            let neigh = cy.edges(`[source = "${centerId}"]`).targets();
+            if (!neigh || neigh.length === 0) {
+              neigh = center.closedNeighborhood().nodes().filter(n => n.id() !== centerId);
+            }
+            // Deterministic order: sort by label then id
+            try { neigh = neigh.sort((a,b)=>{
+              const la = String(a.data('label')||'');
+              const lb = String(b.data('label')||'');
+              if (la!==lb) return la.localeCompare(lb);
+              return String(a.id()).localeCompare(String(b.id()));
+            }); } catch {}
+            const k = neigh.length;
+            if (k === 0) return;
+            // Measure individual label widths
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const fontPx = 12;
+            if (ctx) ctx.font = `${fontPx}px sans-serif`;
+            // Smaller nodes требуют большего уплотнения; зададим pad динамически
+            const padBase = 28;
+            const padBoost = 40; // добавка для мелких
+            const pad = padBase; // базовый
+            const widths = neigh.map(n => {
+              try { const w = ctx ? ctx.measureText(String(n.data('label')||'')).width : 120; return Math.max(60, Math.min(600, Math.floor(w))); } catch { return 120; }
+            });
+            // Увеличим радиус для кластеров, где доля маленьких узлов высока
+            const smallThreshold = 36; // диаметр ~ data(viz_size)
+            const smallCount = neigh.toArray().filter(n=>Number(n.data('viz_size')||0) <= smallThreshold).length;
+            const smallRatio = smallCount / Math.max(1,k);
+            const extraPad = smallRatio > 0.4 ? padBoost : 0;
+            const sum = widths.reduce((a,b)=>a+b+pad+extraPad, 0);
+            const minR = Math.max(280, Math.floor(approximateMaxLabelWidth()*1.2));
+            const spacing = currentSpacing();
+            const radius = Math.max(minR, Math.ceil(sum / (2*Math.PI))) * spacing;
+            const cx = center.position('x');
+            const cyy = center.position('y');
+            // Clockwise equal spacing; if has parent(s) → use 180° sector aligned with incoming vector
+            const incoming = cy.edges(`[target = "${centerId}"]`).sources();
+            let useSemi = (incoming && incoming.length > 0);
+            let start = -Math.PI/2; // default start (12 o'clock)
+            if (useSemi){
+              // Average parent direction (from parent → center)
+              let ax = 0, ay = 0;
+              // use center -> parent vector in screen coords to ensure sector is opposite to parent
+              incoming.forEach(p => { const pp = p.position(); ax += (pp.x - cx); ay += (pp.y - cyy); });
+              ax /= incoming.length||1; ay /= incoming.length||1;
+              const theta = Math.atan2(ay, ax); // direction of incoming vector
+              // Place children strictly in the opposite half-plane: angles ∈ [theta+90°, theta+270°] (clockwise)
+              const step = Math.PI / k;
+              start = theta + 1.5 * Math.PI; // start at theta+270° and go clockwise
+              for (let i=0;i<k;i++){
+                const ang = start - (i + 0.5) * step; // center-of-bin, clockwise
+                const x = cx + radius*Math.cos(ang);
+                const y = cyy + radius*Math.sin(ang);
+                try { neigh[i].position({x,y}); } catch {}
+              }
+            } else {
+              // Full 360° for root-like nodes
+              const step = (2*Math.PI) / k;
+              for (let i=0;i<k;i++){
+                const ang = start - i*step; // clockwise
+                const x = cx + radius*Math.cos(ang);
+                const y = cyy + radius*Math.sin(ang);
+                try { neigh[i].position({x,y}); } catch {}
+              }
+            }
+          }
+
+          btn.addEventListener('click', ()=>{
+            // If a node is selected, arrange it; otherwise arrange all nodes
+            if (selectedNodeId){
+              const center = cy.getElementById(String(selectedNodeId));
+              if (center && center.nonempty()) arrangeFor(center);
+            } else {
+              // Process nodes in descending order by descendants to anchor hubs first
+              const ordered = cy.nodes().toArray().sort((a,b)=>{
+                const da = Number(a.data('descendants')||0);
+                const db = Number(b.data('descendants')||0);
+                return db - da;
+              });
+              ordered.forEach(n=>{ arrangeFor(n); });
+            }
+          });
+        })();
+
+        // Wire layout controls
+        (function wireLayoutControls(){
+          const modeSel = document.getElementById('layoutMode');
+          const algoSel = document.getElementById('layoutAlgo');
+          const btnRun = document.getElementById('btnRunLayout');
+          const btnRestore = document.getElementById('btnRestoreSaved');
+          const spacing = document.getElementById('layoutSpacing');
+          const spacingVal = document.getElementById('layoutSpacingValue');
+          const btnRefine = document.getElementById('btnRefineLayout');
+          const presetSel = document.getElementById('layoutPreset');
+          const controls = [algoSel, btnRun, btnRestore];
+          function setPreviewUi(active){
+            layoutPreviewActive = !!active;
+            controls.forEach(el=>{ if (el) el.disabled = !active; });
+            if (spacing) spacing.disabled = !active; if (spacingVal) spacingVal.style.opacity = active? '1':'0.5';
+            try {
+              const id = 'layoutPreviewPill';
+              let pill = document.getElementById(id);
+              if (active) {
+                if (!pill){
+                  pill = document.createElement('div');
+                  pill.id = id;
+                  pill.className = 'absolute left-3 bottom-3 z-30 px-2 py-1 rounded bg-amber-100 text-amber-900 text-xs pointer-events-none';
+                  pill.textContent = 'Preview mode — positions are not saved';
+                  const host = document.querySelector('#cy').parentElement;
+                  host && host.appendChild(pill);
+                }
+              } else if (pill) {
+                try { pill.remove(); } catch {}
+              }
+            } catch {}
+          }
+          if (modeSel){
+            // Initialize
+            controls.forEach(el=>{ if (el) el.disabled = true; });
+            modeSel.addEventListener('change', ()=>{
+              const v = String(modeSel.value||'saved');
+              if (v === 'suggested'){
+                captureCurrentPositions();
+                setPreviewUi(true);
+              } else {
+                restoreSavedPositions();
+                setPreviewUi(false);
+              }
+            });
+          }
+          if (btnRun){ btnRun.addEventListener('click', ()=>{ if (!layoutPreviewActive) return; const algo = (algoSel && algoSel.value) || 'fcose'; runSuggestedLayout(algo); }); }
+          if (btnRestore){ btnRestore.addEventListener('click', ()=>{ if (!layoutPreviewActive) return; restoreSavedPositions(); }); }
+          if (btnRefine){ btnRefine.addEventListener('click', ()=>{ if (!layoutPreviewActive) return; refineLayout(18); }); }
+          if (spacing){
+            spacing.addEventListener('input', ()=>{ if (spacingVal) spacingVal.textContent = `x${Number(spacing.value).toFixed(1)}`; });
+            spacing.addEventListener('change', ()=>{ if (!layoutPreviewActive) return; const algo = (algoSel && algoSel.value) || 'fcose'; runSuggestedLayout(algo); });
+          }
+          if (presetSel){
+            presetSel.addEventListener('change', ()=>{
+              if (!layoutPreviewActive) return;
+              const pv = String(presetSel.value||'none');
+              const spacingFactor = currentSpacing();
+              if (pv === 'tree-lr' || pv === 'tree-tb'){
+                const dir = (pv==='tree-lr') ? 'LR' : 'TB';
+                const sep = Math.max(40, Math.floor(approximateMaxLabelWidth()*0.5*spacingFactor));
+                cy.layout({ name: 'dagre', rankDir: dir, nodeSep: sep, rankSep: Math.max(sep, 60), edgeSep: Math.floor(sep/4) }).run();
+              } else if (pv === 'radial-tree'){
+                // 1) topological layering by distance from a chosen root (largest descendants)
+                const nodes = cy.nodes().toArray();
+                const sorted = nodes.sort((a,b)=>Number(b.data('descendants')||0)-Number(a.data('descendants')||0));
+                const root = sorted[0];
+                const dist = new Map();
+                const q = [root.id()]; dist.set(root.id(),0);
+                while(q.length){
+                  const v = q.shift(); const d0 = dist.get(v)||0;
+                  cy.edges(`[source = "${v}"]`).targets().forEach(t=>{ const id=t.id(); if(!dist.has(id)){ dist.set(id, d0+1); q.push(id); }});
+                }
+                const maxD = Array.from(dist.values()).reduce((m,v)=>Math.max(m,v),0);
+                const layerRadius = (r)=> (220 + r*140) * spacingFactor;
+                const layerToNodes = new Map();
+                nodes.forEach(n=>{ const d = dist.has(n.id())? dist.get(n.id()) : maxD; if(!layerToNodes.has(d)) layerToNodes.set(d,[]); layerToNodes.get(d).push(n); });
+                // Place each layer on a circle; inner root at center
+                const center = {x: cy.width()/2, y: cy.height()/2};
+                for (let d=0; d<=maxD; d++){
+                  const arr = layerToNodes.get(d)||[]; const r = layerRadius(d);
+                  const step = arr.length>0 ? (2*Math.PI)/arr.length : 2*Math.PI;
+                  for (let i=0;i<arr.length;i++){
+                    const ang = -Math.PI/2 - i*step;
+                    arr[i].position({ x: center.x + r*Math.cos(ang), y: center.y + r*Math.sin(ang) });
+                  }
+                }
+              } else if (pv === 'circular'){
+                const nodes = cy.nodes().toArray();
+                const r = Math.max(300, Math.min(1200, Math.floor(approximateMaxLabelWidth()*nodes.length/Math.PI))) * spacingFactor;
+                const center = {x: cy.width()/2, y: cy.height()/2};
+                const step = nodes.length>0 ? (2*Math.PI)/nodes.length : 2*Math.PI;
+                for (let i=0;i<nodes.length;i++){
+                  const ang = -Math.PI/2 - i*step;
+                  nodes[i].position({ x: center.x + r*Math.cos(ang), y: center.y + r*Math.sin(ang) });
+                }
+              }
+            });
+          }
+        })();
 
         // Fit cooldown tracking for zoom-out navigation
         let lastFitAt = 0;
@@ -2008,7 +2392,13 @@
             if (!selectedNodeId) return;
             const value = String(btn.dataset.value || '');
             if (!value) return;
-            if (btn.getAttribute('aria-checked') === 'true') { setRadioGroupValue(grp, value); return; }
+            if (btn.getAttribute('aria-checked') === 'true') {
+              setRadioGroupValue(grp, value);
+              try { refreshEdgeTargetFlags(selectedNodeId); } catch {}
+              try { recomputePriorityPaths(); } catch {}
+              try { cy && cy.style && cy.style().update(); } catch {}
+              return;
+            }
             const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { status: value });
             const n = cy.getElementById(selectedNodeId);
             if (n && n.nonempty()) n.data('status', resp.data.status || value);
@@ -2031,7 +2421,13 @@
             if (!selectedNodeId) return;
             const value = String(btn.dataset.value || '');
             if (!value) return;
-            if (btn.getAttribute('aria-checked') === 'true') { setRadioGroupValue(grp, value); return; }
+            if (btn.getAttribute('aria-checked') === 'true') {
+              setRadioGroupValue(grp, value);
+              try { refreshEdgeTargetFlags(selectedNodeId); } catch {}
+              try { recomputePriorityPaths(); } catch {}
+              try { cy && cy.style && cy.style().update(); } catch {}
+              return;
+            }
             const resp = await patchJSON(`/api/v1/nodes/${selectedNodeId}`, { priority: value });
             const n = cy.getElementById(selectedNodeId);
             if (n && n.nonempty()) n.data('priority', resp.data.priority || value);
@@ -4442,8 +4838,9 @@
           alert('Shortcuts: n=new node, e=new edge, f=fit, /=search. Ctrl+Click a node with Link URL opens it in a new tab. Use toolbar to manage nodes/edges, sidebar for comments/time/cost.');
         });
 
-        // Persist position after drag
+        // Persist position after drag (guarded by preview mode)
         cy.on('dragfree', 'node', async (evt) => {
+          if (typeof layoutPreviewActive !== 'undefined' && layoutPreviewActive) { return; }
           const n = evt.target;
           const p = n.position();
           try {
