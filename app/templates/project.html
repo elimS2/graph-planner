@@ -49,6 +49,10 @@
         overflow: hidden !important;
         pointer-events: none;
       }
+      /* Layering: keep sidebar above main content to prevent native select bleedthrough */
+      #sidebar { position: relative; z-index: 60; }
+      /* While Comments are fullscreen, hide the graph layout toolbar to avoid overlay */
+      .comments-fs .graph-layout-toolbar { display: none !important; }
     </style>
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-900">
@@ -101,7 +105,7 @@
             </label>
             <button id="btnHelp" class="px-3 py-1 bg-slate-500 text-white rounded">Help</button>
             
-            <div class="inline-flex items-center gap-2 ml-2 px-2 py-1 bg-slate-100 rounded">
+            <div class="inline-flex items-center gap-2 ml-2 px-2 py-1 bg-slate-100 rounded graph-layout-toolbar">
               <label for="layoutMode" class="text-sm text-slate-700">Layout</label>
               <select id="layoutMode" class="border rounded px-2 py-1 text-sm">
                 <option value="saved">Saved</option>
@@ -4248,6 +4252,7 @@
               if (!panel || !block || !sidebar) return;
               const PREV_W_KEY = 'sidebar.prevWidthB4CommentsFs';
               if (state){
+                try { document.body.classList.add('comments-fs'); } catch {}
                 // Hide everything except the comments block
                 Array.from(panel.children).forEach(el => { if (el !== block) el.classList.add('hidden'); });
                 // Maximize height
@@ -4266,6 +4271,7 @@
                 if (btnFullscreen) btnFullscreen.textContent = 'Exit Fullscreen';
                 try { cy.resize(); } catch {}
               } else {
+                try { document.body.classList.remove('comments-fs'); } catch {}
                 // Restore other blocks
                 Array.from(panel.children).forEach(el => { if (el !== block) el.classList.remove('hidden'); });
                 // Restore height and width
