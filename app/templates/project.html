@@ -308,7 +308,7 @@
                       </span>
                       <span class="ql-formats">
                         <button type="button" id="btnAttachFile" title="Attach">Attach</button>
-                        <input id="filePickerComment" type="file" class="hidden" multiple accept="image/*,application/pdf,application/zip,application/x-zip-compressed,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" />
+                        <input id="filePickerComment" type="file" class="hidden" multiple accept="image/*,application/pdf,application/zip,application/x-zip-compressed,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/markdown" />
                       </span>
                     </div>
                     <div id="commentEditorArea" style="height: var(--commentEditorHeight, 192px);"></div>
@@ -1745,6 +1745,47 @@
         // Inline editor for existing comments
         let quillEdit = null;
         let currentUserId = null;
+
+        // Centralized accept MIME list for attachments (kept readable)
+        const COMMENT_ACCEPT_MIME = [
+          'image/*',
+          'application/pdf',
+          'application/zip',
+          'application/x-zip-compressed',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/plain',
+          'text/markdown',
+        ];
+
+        function wireGlobalDropGuards(){
+          try {
+            if (window.__dropGuardsWired) return;
+            window.__dropGuardsWired = true;
+            function isAllowedTarget(t){
+              try { const r = quill && quill.root; if (r && (r === t || (t && r.contains(t)))) return true; } catch {}
+              try { const r2 = quillEdit && quillEdit.root; if (r2 && (r2 === t || (t && r2.contains(t)))) return true; } catch {}
+              return false;
+            }
+            window.addEventListener('dragover', (e)=>{
+              try {
+                const types = (e && e.dataTransfer && e.dataTransfer.types) ? Array.from(e.dataTransfer.types) : [];
+                if (types.includes('Files')){
+                  if (!isAllowedTarget(e.target)) { e.preventDefault(); e.stopPropagation(); try { e.dataTransfer.dropEffect='none'; } catch {} }
+                }
+              } catch {}
+            }, true);
+            window.addEventListener('drop', (e)=>{
+              try {
+                const types = (e && e.dataTransfer && e.dataTransfer.types) ? Array.from(e.dataTransfer.types) : [];
+                if (types.includes('Files')){
+                  if (!isAllowedTarget(e.target)) { e.preventDefault(); e.stopPropagation(); }
+                }
+              } catch {}
+            }, true);
+          } catch {}
+        }
         function initQuillOnce(){
           if (quill) return;
           try {
@@ -1761,6 +1802,7 @@
               const btn = document.getElementById('btnAttachFile');
               const picker = document.getElementById('filePickerComment');
               if (btn && picker){
+                try { picker.setAttribute('accept', COMMENT_ACCEPT_MIME.join(',')); } catch {}
                 btn.addEventListener('click', ()=> picker.click());
                 picker.addEventListener('change', async ()=>{
                   const files = Array.from(picker.files||[]);
@@ -1810,8 +1852,31 @@
               const files = (e.dataTransfer && e.dataTransfer.files) ? Array.from(e.dataTransfer.files) : [];
               if (files && files.length){ await handleFiles(files); }
             }, true);
+            wireGlobalDropGuards();
           } catch {}
         }
+
+        function ensureEditorReady(){
+          try { initQuillOnce(); wireGlobalDropGuards(); } catch {}
+        }
+
+        // Ensure editor is initialized on page load (so Attach and DnD work immediately)
+        try { if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', ensureEditorReady); } else { ensureEditorReady(); } } catch {}
+
+        // Fallback: wire Attach button even before Quill init
+        try {
+          const btn = document.getElementById('btnAttachFile');
+          if (btn && !btn.__wiredFallback){
+            btn.__wiredFallback = true;
+            btn.addEventListener('click', ()=>{
+              try {
+                ensureEditorReady();
+                const picker = document.getElementById('filePickerComment');
+                if (picker) picker.click();
+              } catch {}
+            });
+          }
+        } catch {}
         async function ensureCurrentUser(){
           if (currentUserId !== null) return currentUserId;
           try { const me = await apiMe(); currentUserId = (me && me.id) ? String(me.id) : null; } catch { currentUserId = null; }
@@ -1980,7 +2045,11 @@
                   const editToolbar = document.createElement('div');
                   editToolbar.className = 'mt-1 flex items-center gap-2';
                   const btnAttachE = document.createElement('button'); btnAttachE.type='button'; btnAttachE.className='px-2 py-1 text-xs rounded bg-slate-200 text-slate-800'; btnAttachE.textContent='Attach';
-                  const pickerE = document.createElement('input'); pickerE.type='file'; pickerE.multiple=true; pickerE.className='hidden'; pickerE.setAttribute('accept','image/*,application/pdf,application/zip,application/x-zip-compressed,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown');
+                  const pickerE = document.createElement('input');
+                  pickerE.type = 'file';
+                  pickerE.multiple = true;
+                  pickerE.className = 'hidden';
+                  try { pickerE.setAttribute('accept', COMMENT_ACCEPT_MIME.join(',')); } catch {}
                   const hintE = document.createElement('span'); hintE.className='text-xs text-slate-500'; hintE.textContent='You can paste or drag files here.';
                   editToolbar.appendChild(btnAttachE); editToolbar.appendChild(pickerE); editToolbar.appendChild(hintE);
                   editWrap.appendChild(editToolbar);

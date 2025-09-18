@@ -78,6 +78,8 @@ def save_filestorage(file: FileStorage, uploader_user_id: str) -> SavedFile:
                 mime = "application/msword"
             elif ext == ".docx":
                 mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            elif ext == ".xlsx":
+                mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         except Exception:
             pass
     if not _allowed_mime(mime):
