@@ -47,16 +47,39 @@ def _guess_kind(mime: str) -> str:
     return "image" if (mime or "").lower().startswith("image/") else "file"
 
 
+def _normalize_mime(mime: str) -> str:
+    m = (mime or "").strip().lower()
+    # Common browser/OS variants
+    if m == "application/x-zip-compressed":
+        return "application/zip"
+    return m
+
+
 def _allowed_mime(mime: str) -> bool:
     raw = (current_app.config.get("ALLOWED_UPLOAD_MIME") or "").split(",")
     allowed = {m.strip().lower() for m in raw if m.strip()}
-    return (mime or "").lower() in allowed if allowed else False
+    nm = _normalize_mime(mime)
+    return nm in allowed if allowed else False
 
 
 def save_filestorage(file: FileStorage, uploader_user_id: str) -> SavedFile:
     if not file or not file.filename:
         raise ValueError("Empty file")
     mime = file.mimetype or "application/octet-stream"
+    mime = _normalize_mime(mime)
+    # Fallback by extension for octet-stream from some browsers/OSes
+    if mime == "application/octet-stream":
+        try:
+            name = (file.filename or "").strip().lower()
+            ext = Path(name).suffix
+            if ext == ".zip":
+                mime = "application/zip"
+            elif ext == ".doc":
+                mime = "application/msword"
+            elif ext == ".docx":
+                mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        except Exception:
+            pass
     if not _allowed_mime(mime):
         raise ValueError("Disallowed file type")
     # Size guard (werkzeug may not give length up-front; enforce at stream level if needed)

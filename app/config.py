@@ -62,6 +62,10 @@ class BaseConfig:
                     "image/svg+xml",
                     # docs
                     "application/pdf",
+                    "application/zip",
+                    "application/x-zip-compressed",
+                    "application/msword",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     # office docs
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                     "text/plain",

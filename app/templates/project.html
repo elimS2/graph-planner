@@ -308,7 +308,7 @@
                       </span>
                       <span class="ql-formats">
                         <button type="button" id="btnAttachFile" title="Attach">Attach</button>
-                        <input id="filePickerComment" type="file" class="hidden" multiple />
+                        <input id="filePickerComment" type="file" class="hidden" multiple accept="image/*,application/pdf,application/zip,application/x-zip-compressed,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown" />
                       </span>
                     </div>
                     <div id="commentEditorArea" style="height: var(--commentEditorHeight, 192px);"></div>
@@ -1804,12 +1804,12 @@
                 if (files && files.length){ e.preventDefault(); await handleFiles(files); }
               } catch {}
             });
-            editorRoot.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+            editorRoot.addEventListener('dragover', (e)=>{ try { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; } catch {} }, true);
             editorRoot.addEventListener('drop', async (e)=>{
-              e.preventDefault();
+              try { e.preventDefault(); e.stopPropagation(); } catch {}
               const files = (e.dataTransfer && e.dataTransfer.files) ? Array.from(e.dataTransfer.files) : [];
               if (files && files.length){ await handleFiles(files); }
-            });
+            }, true);
           } catch {}
         }
         async function ensureCurrentUser(){
@@ -1980,7 +1980,7 @@
                   const editToolbar = document.createElement('div');
                   editToolbar.className = 'mt-1 flex items-center gap-2';
                   const btnAttachE = document.createElement('button'); btnAttachE.type='button'; btnAttachE.className='px-2 py-1 text-xs rounded bg-slate-200 text-slate-800'; btnAttachE.textContent='Attach';
-                  const pickerE = document.createElement('input'); pickerE.type='file'; pickerE.multiple=true; pickerE.className='hidden';
+                  const pickerE = document.createElement('input'); pickerE.type='file'; pickerE.multiple=true; pickerE.className='hidden'; pickerE.setAttribute('accept','image/*,application/pdf,application/zip,application/x-zip-compressed,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown');
                   const hintE = document.createElement('span'); hintE.className='text-xs text-slate-500'; hintE.textContent='You can paste or drag files here.';
                   editToolbar.appendChild(btnAttachE); editToolbar.appendChild(pickerE); editToolbar.appendChild(hintE);
                   editWrap.appendChild(editToolbar);
