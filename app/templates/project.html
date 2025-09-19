@@ -656,7 +656,7 @@
           if (document.getElementById('imgViewerOverlay')) return;
           const overlay = document.createElement('div');
           overlay.id = 'imgViewerOverlay';
-          overlay.className = 'fixed inset-0 z-50 hidden';
+          overlay.className = 'fixed inset-0 z-[9999] hidden';
           overlay.setAttribute('role','dialog');
           overlay.setAttribute('aria-modal','true');
           overlay.innerHTML = `
@@ -667,7 +667,9 @@
               <img id="imgViewerImg" alt="image" class="max-w-[95vw] max-h-[90vh] rounded shadow-lg" />
             </div>`;
           document.body.appendChild(overlay);
-          function close(){ overlay.classList.add('hidden'); document.body.style.overflow=''; }
+          let lastTriggerEl = null;
+          function close(){ overlay.classList.add('hidden'); document.body.style.overflow=''; try { if (lastTriggerEl && typeof lastTriggerEl.focus === 'function') { lastTriggerEl.focus(); } } catch {}
+          }
           overlay.addEventListener('click', (e)=>{
             try {
               const img = document.getElementById('imgViewerImg');
@@ -701,9 +703,9 @@
           }
           function collectAllImages(){
             try {
-              const list = document.getElementById('commentsList');
-              if (!list) return [];
-              return Array.from(list.querySelectorAll('.comments-prose img')).map(i=>i.src);
+              const block = document.getElementById('taskCommentsBlock');
+              if (!block) return [];
+              return Array.from(block.querySelectorAll('.comments-prose img')).map(i=>i.src);
             } catch { return []; }
           }
           function step(delta){
@@ -766,8 +768,9 @@
               finally { startX = null; }
             }, { passive: true });
           } catch {}
-          window.__openImageViewer = function(url){
+          window.__openImageViewer = function(url, triggerEl){
             try {
+              try { lastTriggerEl = triggerEl || document.activeElement || null; } catch { lastTriggerEl = triggerEl || null; }
               const all = collectAllImages();
               gallery.urls = all && all.length ? all : [url];
               const idx = gallery.urls.indexOf(url);
@@ -777,6 +780,37 @@
               const btn = document.getElementById('imgViewerClose'); if (btn) btn.focus();
             } catch {}
           }
+        } catch {}
+      })();
+      // Delegated wiring for images inside comments (robust across DOM changes and fullscreen toggles)
+      (function wireCommentsImagesDelegation(){
+        try {
+          const list = document.getElementById('commentsList');
+          if (!list || list.dataset.imgDelegation === '1') return;
+          list.dataset.imgDelegation = '1';
+          list.addEventListener('click', (e)=>{
+            try {
+              const t = e.target;
+              if (!(t instanceof Element)) return;
+              const img = t.closest('img');
+              if (!img) return;
+              const prose = img.closest('.comments-prose');
+              if (!prose) return;
+              e.preventDefault();
+              if (window.__openImageViewer) window.__openImageViewer(img.src, img);
+            } catch {}
+          });
+          list.addEventListener('keydown', (e)=>{
+            try {
+              if (!(e.key === 'Enter' || e.key === ' ')) return;
+              const t = e.target;
+              if (!(t instanceof Element)) return;
+              if (t.tagName === 'IMG' && t.closest('.comments-prose')){
+                e.preventDefault();
+                if (window.__openImageViewer) window.__openImageViewer(t.src, t);
+              }
+            } catch {}
+          });
         } catch {}
       })();
       const projectId = "{{ project.id }}";
