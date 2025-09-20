@@ -27,7 +27,7 @@ If you need the current time, get it from the time MCP Server.
 - Image viewer is implemented inline in `app/templates/project.html` via an injected overlay and a global `window.__openImageViewer(url)` function that collects images from `#commentsList .comments-prose img`, supports keyboard navigation, zoom/pan, and overlay close.
 - Wiring occurs when rendering each comment (inside `refreshLists` logic): images within `.comments-prose` receive click and keyboard handlers that call `window.__openImageViewer(img.src)`.
 - Fullscreen for comments is toggled by `#btnCommentsFullscreen`, handled in `setupTaskCommentsResizer()` → `applyFullscreen(state)`. It hides non-comment blocks, adjusts sidebar width/height, and toggles `document.body.classList.add('comments-fs')`.
-- CSS includes a rule to hide `.graph-layout-toolbar` during `.comments-fs` to prevent z-index bleedthrough from main toolbar.
+- Previously, CSS hid `.graph-layout-toolbar` during `.comments-fs` to prevent z-index bleedthrough from the header toolbar. Layout controls have been moved into Sidebar → Settings → Graph Layout, so this rule is obsolete and removed.
 
 ## Observed Bug
 
@@ -113,7 +113,7 @@ Baseline (Normal Mode)
 Fullscreen Mode
 - Click `Fullscreen` (`#btnCommentsFullscreen`) to enter comments fullscreen.
 - Click an image: viewer opens and navigates across all images in the comments list.
-- Verify overlay sits above all UI, no toolbar elements bleed through.
+- Verify overlay sits above all UI, no header layout toolbar elements exist anymore; Sidebar remains functional.
 - Keyboard: arrows navigate, Esc closes, focus returns to the thumbnail.
 
 Edge Cases
