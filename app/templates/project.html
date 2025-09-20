@@ -632,6 +632,9 @@
                 <p class="text-xs text-slate-500">Width of the sensitive area near the right edge that triggers auto-reveal.</p>
                 <label class="inline-flex items-center gap-2"><input id="autoHideRespectZero" type="checkbox" class="align-middle"><span>Treat width = 0 as pinned</span></label>
                 <p class="text-xs text-slate-500">When checked, auto-hide ignores a manually collapsed width of 0 until you expand again.</p>
+                <div class="h-px bg-slate-200 my-2"></div>
+                <label class="inline-flex items-center gap-2"><input id="hoverPeekEnabled" type="checkbox" class="align-middle"><span>Enable hover peek for collapsed sections</span></label>
+                <p class="text-xs text-slate-500">Temporarily expands collapsed sections on hover; click to pin them open.</p>
               </div>
             </div>
             <div id="autoHideHeaderBlock" class="rounded border p-3 bg-white space-y-2">
@@ -4227,6 +4230,19 @@
           if (toggle.dataset.wired === '1') return;
           toggle.dataset.wired = '1';
           function flip(){
+            // If section was opened via hover-peek, interpret click as pin-open
+            if (body && body.dataset && body.dataset.hoverOpen === '1'){
+              apply(false);
+              try { localStorage.setItem(storageKey, '0'); } catch {}
+              try { delete body.dataset.hoverOpen; } catch {}
+              try {
+                if (window.sidebarHoverState && window.sidebarHoverState.currentBody === body){
+                  window.sidebarHoverState.currentBody = null;
+                  window.sidebarHoverState.currentApply = null;
+                }
+              } catch {}
+              return;
+            }
             const isCollapsed = body.classList.contains('hidden');
             apply(!isCollapsed);
             try { localStorage.setItem(storageKey, (!isCollapsed) ? '1' : '0'); } catch {}
@@ -4236,6 +4252,48 @@
             const k = (e.key || '').toLowerCase();
             if (k === 'enter' || k === ' '){ e.preventDefault(); flip(); }
           });
+          // Hover-peek wiring (idempotent)
+          if (toggle && toggle.dataset.hoverWired !== '1'){
+            const block = (body && body.closest && body.closest('div[id$="Block"]')) || (toggle.closest && toggle.closest('div[id$="Block"]')) || toggle.parentElement || toggle;
+            function onEnter(){
+              // Respect feature toggle
+              try { if ((localStorage.getItem('sidebar.hoverPeek.enabled') ?? '1') !== '1') return; } catch {}
+              // Respect persistently expanded state
+              const isCollapsed = body.classList.contains('hidden');
+              if (!isCollapsed) return;
+              try { window.sidebarHoverState = window.sidebarHoverState || { currentBody: null, currentApply: null }; } catch {}
+              try {
+                const hs = window.sidebarHoverState || {};
+                if (hs.currentBody && hs.currentBody !== body){
+                  if (hs.currentBody.dataset && hs.currentBody.dataset.hoverOpen === '1'){
+                    if (typeof hs.currentApply === 'function') hs.currentApply(true);
+                    try { delete hs.currentBody.dataset.hoverOpen; } catch {}
+                  }
+                }
+              } catch {}
+              apply(false);
+              try { body.dataset.hoverOpen = '1'; } catch {}
+              try { window.sidebarHoverState = { currentBody: body, currentApply: apply }; } catch {}
+            }
+            function onLeave(){
+              try { if ((localStorage.getItem('sidebar.hoverPeek.enabled') ?? '1') !== '1') return; } catch {}
+              if (body && body.dataset && body.dataset.hoverOpen === '1'){
+                apply(true);
+                try { delete body.dataset.hoverOpen; } catch {}
+                try {
+                  if (window.sidebarHoverState && window.sidebarHoverState.currentBody === body){
+                    window.sidebarHoverState.currentBody = null;
+                    window.sidebarHoverState.currentApply = null;
+                  }
+                } catch {}
+              }
+            }
+            if (block){
+              block.addEventListener('mouseenter', onEnter);
+              block.addEventListener('mouseleave', onLeave);
+              toggle.dataset.hoverWired = '1';
+            }
+          }
         }
 
         // Task Comments Height Resizer (v2: CSS var + Pointer Events)
@@ -4547,17 +4605,20 @@
             const delay = document.getElementById('autoHideDelay');
             const edge = document.getElementById('autoHideEdge');
             const respect = document.getElementById('autoHideRespectZero');
+            const hoverPeek = document.getElementById('hoverPeekEnabled');
             if (!en || en.dataset.wired === '1') return;
             // Load
             try { en.checked = localStorage.getItem('sidebar.autoHide.enabled') === '1'; } catch {}
             try { delay.value = String(Math.max(500, parseInt(localStorage.getItem('sidebar.autoHide.delayMs')||delay.value||'3000',10))); } catch {}
             try { edge.value = String(Math.max(1, parseInt(localStorage.getItem('sidebar.autoHide.edgePx')||edge.value||'6',10))); } catch {}
             try { respect.checked = localStorage.getItem('sidebar.autoHide.respectZero') === '1'; } catch {}
+            try { if (hoverPeek) hoverPeek.checked = (localStorage.getItem('sidebar.hoverPeek.enabled') ?? '1') === '1'; } catch {}
             // Save
             en.addEventListener('change', ()=>{ try { localStorage.setItem('sidebar.autoHide.enabled', en.checked ? '1':'0'); } catch {} });
             delay.addEventListener('change', ()=>{ const v=Math.max(500, parseInt(delay.value||'3000',10)); delay.value=String(v); try { localStorage.setItem('sidebar.autoHide.delayMs', String(v)); } catch {} });
             edge.addEventListener('change', ()=>{ const v=Math.max(1, parseInt(edge.value||'6',10)); edge.value=String(v); try { localStorage.setItem('sidebar.autoHide.edgePx', String(v)); } catch {} });
             respect.addEventListener('change', ()=>{ try { localStorage.setItem('sidebar.autoHide.respectZero', respect.checked ? '1':'0'); } catch {} });
+            if (hoverPeek) hoverPeek.addEventListener('change', ()=>{ try { localStorage.setItem('sidebar.hoverPeek.enabled', hoverPeek.checked ? '1':'0'); } catch {} });
             en.dataset.wired = '1';
           })();
           // Wire Header Auto-Hide settings inputs (idempotent)
