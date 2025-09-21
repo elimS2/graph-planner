@@ -119,6 +119,7 @@
           <div class="flex items-center gap-2 mb-1">
             <button id="tabTask" class="px-2 py-1 text-xs rounded bg-slate-800 text-white">Task</button>
             <button id="tabActions" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Actions</button>
+            <button id="tabBoards" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Boards</button>
             <button id="tabSettings" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Settings</button>
           </div>
           <div id="taskPanel" class="space-y-3">
@@ -373,6 +374,21 @@
               <div class="flex items-center justify-end pt-1">
                 <button id="btnActionsResetVisibility" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800" title="Reset header visibility to defaults" aria-label="Reset header visibility to defaults">Reset to defaults</button>
               </div>
+            </div>
+          </div>
+
+          <div id="boardsPanel" class="space-y-3 hidden">
+            <div id="boardsMainBlock" class="rounded border p-2 bg-white space-y-2">
+              <h3 class="font-medium text-sm">Boards</h3>
+              <div id="boardsState" class="text-sm text-slate-500">Loading…</div>
+              <div class="flex items-center justify-between gap-2">
+                <div class="text-xs text-slate-500" id="boardsCount"></div>
+                <div class="flex items-center gap-2">
+                  <button id="btnBoardsRefresh" type="button" class="px-2 py-1 text-xs rounded bg-slate-200 text-slate-800">Refresh</button>
+                  <a href="/" class="text-xs text-blue-700 underline">Home</a>
+                </div>
+              </div>
+              <ul id="boardsList" class="divide-y hidden"></ul>
             </div>
           </div>
 
@@ -4164,15 +4180,18 @@
           schedule();
         })();
 
-        // Panel tabs: Task | Actions | Settings
+        // Panel tabs: Task | Actions | Boards | Settings
         const tabTask = document.getElementById('tabTask');
         const tabActions = document.getElementById('tabActions');
+        const tabBoards = document.getElementById('tabBoards');
         const tabSettings = document.getElementById('tabSettings');
         const taskPanel = document.getElementById('taskPanel');
         const actionsPanel = document.getElementById('actionsPanel');
+        const boardsPanel = document.getElementById('boardsPanel');
         const settingsPanel = document.getElementById('settingsPanel');
         // ensure declared before any call path
         let settingsLoaded = false;
+        let boardsLoaded = false;
 
         // Collapsible sections helper for Settings panel
         function wireCollapsibleSection({ toggleId, bodyId, storageKey, defaultCollapsed }){
@@ -4538,11 +4557,13 @@
         function resetTabStyles(){
           tabTask.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
           if (tabActions) tabActions.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
+          if (tabBoards) tabBoards.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
           tabSettings.className = 'px-2 py-1 text-xs rounded bg-slate-200 text-slate-800';
         }
         function hideAllPanels(){
           taskPanel.classList.add('hidden');
           if (actionsPanel) actionsPanel.classList.add('hidden');
+          if (boardsPanel) boardsPanel.classList.add('hidden');
           settingsPanel.classList.add('hidden');
         }
         function showTask(){
@@ -4575,6 +4596,14 @@
           resetTabStyles();
           if (tabActions) tabActions.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
           localStorage.setItem('sidebarTab', 'actions');
+        }
+        async function showBoards(){
+          hideAllPanels();
+          if (boardsPanel) boardsPanel.classList.remove('hidden');
+          resetTabStyles();
+          if (tabBoards) tabBoards.className = 'px-2 py-1 text-xs rounded bg-slate-800 text-white';
+          localStorage.setItem('sidebarTab', 'boards');
+          try { await ensureBoardsLoaded(); } catch {}
         }
         function showSettings(){
           hideAllPanels();
@@ -4636,13 +4665,64 @@
             en.dataset.wired = '1';
           })();
         }
+        // Boards: fetch and render (lazy)
+        async function ensureBoardsLoaded(){
+          if (boardsLoaded) return;
+          const state = document.getElementById('boardsState');
+          const list = document.getElementById('boardsList');
+          const count = document.getElementById('boardsCount');
+          const refresh = document.getElementById('btnBoardsRefresh');
+          if (!state || !list || !count || !refresh) { boardsLoaded = true; return; }
+          async function load(){
+            state.className = 'text-sm text-slate-500';
+            state.textContent = 'Loading…';
+            list.innerHTML = '';
+            list.classList.add('hidden');
+            count.textContent = '';
+            try {
+              const r = await fetch('/api/v1/projects', { cache: 'no-store' });
+              if (!r.ok) throw r;
+              const j = await r.json();
+              const data = Array.isArray(j.data) ? j.data : [];
+              if (!data.length){
+                state.className = 'text-sm text-slate-500';
+                state.innerHTML = 'No boards yet. <a href="/" class="text-blue-700 underline">Create on Home</a>';
+                return;
+              }
+              list.innerHTML = '';
+              data.slice(0, 200).forEach(p => {
+                const li = document.createElement('li'); li.className = 'py-2';
+                const row = document.createElement('div'); row.className = 'flex items-center justify-start';
+                const left = document.createElement('div'); left.className = 'flex items-center gap-2 min-w-0';
+                const a = document.createElement('a'); a.className='text-blue-700 hover:underline font-medium truncate'; a.href = `/projects/${p.id}`; a.textContent = p.name || String(p.id || 'board'); a.title = p.name || '';
+                left.appendChild(a);
+                row.appendChild(left);
+                li.appendChild(row);
+                list.appendChild(li);
+              });
+              count.textContent = `${Math.min(200, data.length)} of ${data.length}`;
+              state.textContent = '';
+              list.classList.remove('hidden');
+            } catch (e){
+              const status = (e && e.status) ? e.status : '';
+              state.className = 'text-sm text-rose-700';
+              if (status === 401 || status === 403){ state.innerHTML = 'Login to view boards. <a href="/" class="text-blue-700 underline">Go to Home</a>'; }
+              else { state.textContent = 'Failed to load boards'; }
+            }
+          }
+          refresh.addEventListener('click', load);
+          await load();
+          boardsLoaded = true;
+        }
         tabTask.addEventListener('click', showTask);
         if (tabActions) tabActions.addEventListener('click', showActions);
+        if (tabBoards) tabBoards.addEventListener('click', showBoards);
         tabSettings.addEventListener('click', showSettings);
         // restore active tab
         const savedTab = localStorage.getItem('sidebarTab') || 'task';
         if (savedTab === 'settings') showSettings();
         else if (savedTab === 'actions') showActions();
+        else if (savedTab === 'boards') showBoards();
         else showTask();
 
         // Settings: fetch and render
