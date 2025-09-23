@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ project.name }} - Graph</title>
+    <script src="/static/js/plain_paste.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
@@ -133,7 +134,7 @@
             <div id="taskSelectionLinkBody" class="space-y-2">
               <div>
                 <label class="block text-sm font-semibold text-slate-600">Selected Node Title</label>
-                <div id="selNodeTitle" contenteditable="true" spellcheck="false" class="text-sm text-slate-800 truncate border rounded px-2 py-1 focus:outline-none focus:ring focus:ring-slate-300">—</div>
+                <div id="selNodeTitle" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="false" aria-label="Selected node title" class="text-sm text-slate-800 truncate border rounded px-2 py-1 focus:outline-none focus:ring focus:ring-slate-300">—</div>
               </div>
               <div>
                 <label class="block text-sm font-semibold text-slate-600">Link URL</label>
@@ -2681,6 +2682,11 @@
 
         // Inline edit selected node title (Task Panel)
         const titleInlineEl = document.getElementById('selNodeTitle');
+        // Wire reusable plain-text paste behavior
+        (function wirePlainPasteForTitle(){
+          if (!titleInlineEl || !window.PlainPaste) return;
+          try { window.PlainPaste.wirePlainTextPaste(titleInlineEl, { allowNewlines: false, preventDrop: true }); } catch {}
+        })();
         function commitInlineTitle(){
           if (!selectedNodeId) return;
           const newTitle = (titleInlineEl.textContent || '').trim();
