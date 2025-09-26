@@ -62,6 +62,7 @@ class BaseConfig:
                     "image/svg+xml",
                     # docs
                     "application/pdf",
+                    "text/csv",
                     "application/zip",
                     "application/x-zip-compressed",
                     "application/msword",
